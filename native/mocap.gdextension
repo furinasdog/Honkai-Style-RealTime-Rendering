@@ -1,0 +1,10 @@
+[configuration]
+entry_symbol = "mocap_library_init"
+compatibility_minimum = "4.7"
+reloadable = false
+
+[libraries]
+windows.x86_64 = "res://native/bin/mocap_native.dll"
+
+[dependencies]
+windows.x86_64 = { "res://native/bin/libmediapipe.dll": "", "res://native/bin/7z.dll": "" }

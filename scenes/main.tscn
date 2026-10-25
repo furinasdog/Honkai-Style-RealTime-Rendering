@@ -1,0 +1,61 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://scripts/showcase.gd" id="1"]
+[ext_resource type="Script" path="res://scripts/actor.gd" id="2"]
+[ext_resource type="Shader" path="res://shaders/stage_floor.gdshader" id="4"]
+[ext_resource type="Script" path="res://scripts/blender_camera.gd" id="5"]
+
+[sub_resource type="Environment" id="Environment_stage"]
+background_mode = 1
+background_color = Color(0.075, 0.088, 0.13, 1)
+ambient_light_source = 3
+reflected_light_source = 2
+tonemap_mode = 0
+
+[sub_resource type="ShaderMaterial" id="Material_floor"]
+shader = ExtResource("4")
+
+[sub_resource type="PlaneMesh" id="Plane_floor"]
+material = SubResource("Material_floor")
+size = Vector2(200, 200)
+
+[sub_resource type="BoxShape3D" id="Shape_floor"]
+size = Vector3(200, 0.2, 200)
+
+[node name="AvatarStudio" type="Node3D"]
+script = ExtResource("1")
+
+[node name="Environment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_stage")
+
+[node name="KeyLight" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-35, 160, 0)
+light_energy = 1.0
+light_angular_distance = 0.0
+shadow_enabled = true
+shadow_bias = 0.05
+shadow_normal_bias = 0.8
+directional_shadow_mode = 2
+directional_shadow_max_distance = 18.0
+
+[node name="Floor" type="StaticBody3D" parent="."]
+
+[node name="Mesh" type="MeshInstance3D" parent="Floor"]
+mesh = SubResource("Plane_floor")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Floor"]
+position = Vector3(0, -0.1, 0)
+shape = SubResource("Shape_floor")
+
+[node name="Camera3D" type="Camera3D" parent="."]
+script = ExtResource("5")
+position = Vector3(0, 1.2, 3.8)
+current = true
+fov = 32.0
+near = 0.03
+far = 250.0
+
+[node name="Actor" type="Node3D" parent="."]
+script = ExtResource("2")
+
+[node name="Visual" type="Node3D" parent="Actor"]

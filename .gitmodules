@@ -1,0 +1,3 @@
+[submodule "plugins/honkai_mmd"]
+	path = plugins/honkai_mmd
+	url = https://github.com/furinasdog/Honkai-MMD-Loader.git

@@ -1,0 +1,13 @@
+#pragma once
+#include <cstddef>
+namespace gdabi {
+constexpr std::size_t variant_size = @SIZE_Variant@;
+constexpr std::size_t string_size = @SIZE_String@;
+constexpr std::size_t string_name_size = @SIZE_StringName@;
+constexpr std::size_t packed_bytes_size = @SIZE_PackedByteArray@;
+constexpr std::size_t packed_floats_size = @SIZE_PackedFloat32Array@;
+constexpr std::size_t packed_vectors_size = @SIZE_PackedVector3Array@;
+constexpr std::size_t packed_uvs_size = @SIZE_PackedVector2Array@;
+constexpr std::size_t packed_colors_size = @SIZE_PackedColorArray@;
+constexpr std::size_t packed_ints_size = @SIZE_PackedInt32Array@;
+}
