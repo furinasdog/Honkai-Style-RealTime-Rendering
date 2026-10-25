@@ -55,3 +55,23 @@ front/back color test checks the lining regression independently of characters.
 Not checked: live webcam capture in this run, OBS plugin end-to-end reception,
 other C++ compilers/platforms, every MMD constraint/effect, or every user model.
 See loader UPSTREAM.md for SDEF/QDEF, advanced morph and soft-body limitations.
+
+## v0.1.1 shadow regression
+
+The v0.1.0 visual checks missed the lip/chin shading problem during mouth
+morphs and high lighting. A minimal render with a uniform white face and
+downward-facing lower-face normals reproduced it: upper green intensity 1.00,
+lower intensity approximately 0.91 under frontal light. Disabling projected
+shadows did not remove it; disabling the face's normal-based chin branch did.
+
+The face now uses only the head-local two-tone field, with no lip/chin normal
+shading or face rim light. Smooth tonal masks were replaced by pixel-width
+antialiasing boundaries. The regression renders the actual material shader and
+checks equal frontal tones, retained backlighting, and no more than two edge
+pixels between the two side-lit tones. It passes after failing on v0.1.0.
+
+Local Cyrene, March 7th and Sparxie captures cover an open mouth, six head pitch
+angles, light elevations 5/35/60/85 degrees, and side/back light. No live webcam
+or private character asset is required by the synthetic regression test.
+Neck-material aliases were also corrected so a material named 脖子 uses the
+skin shadow palette, while neck accessories retain their clothing category.
