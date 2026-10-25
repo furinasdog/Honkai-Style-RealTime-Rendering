@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(mocap_native LANGUAGES CXX)
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/.gdignore" "")
 set(CMAKE_CXX_STANDARD 17)
 set(GODOT_EXECUTABLE "" CACHE FILEPATH "Godot 4.7 Windows editor executable, used only to export its native API")
 if(NOT EXISTS "${GODOT_EXECUTABLE}")

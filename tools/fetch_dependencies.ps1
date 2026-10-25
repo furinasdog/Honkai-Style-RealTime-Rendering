@@ -3,6 +3,7 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $downloads = Join-Path $projectRoot 'build/downloads'
 [void][IO.Directory]::CreateDirectory($downloads)
+[IO.File]::WriteAllText((Join-Path $projectRoot 'build/.gdignore'), '')
 [void][IO.Directory]::CreateDirectory((Join-Path $projectRoot 'native/bin'))
 
 function Assert-FileHash([string]$Path, [string]$Expected) {
