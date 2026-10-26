@@ -1,6 +1,6 @@
 # Windows 便携发行包
 
-默认发行目录是 `dist/HonkaiRender/`，运行 `HonkaiRender.exe`。发布包不带角色、贴图、私人缓存或开发工具，常规 PMX 导入不需要 Blender / Python。
+默认发行目录是 `dist/HonkaiRender/`，运行 `HonkaiRender.exe`。发布包不带角色、贴图、私人缓存或开发工具，PMX 由原生 C++ 加载，不需要 Blender / Python。
 
 ## 准备及构建
 
@@ -17,13 +17,7 @@ ctest --test-dir build/native -C Release --output-on-failure
 
 `-StageOnly` 只生成并校验隔离导出副本。副本仅包括通用脚本、场景、着色器、MMD 子模块的 runtime/render、图标、原生库和 Tasks 模型，不复制 `assets/`、测试、参考图片或开发插件。编辑器与模板复制到 `build/editor_runtime/`，不修改系统安装目录。
 
-默认包不包含 Blender。确需兼容转换的发行方可额外传入：
-
-```powershell
-./tools/build_portable.ps1 -GodotExecutable $Godot -IncludeBlenderCompatibility -BlenderExecutable $Blender -MmdToolsPath $MmdTools
-```
-
-Blender/mmd_tools 的完整运行时、许可和受控 worker 会放在 `runtime/`。用户必须在导入对话框显式勾选 Blender 兼容转换；原生失败不会静默转入另一条路径。Blender 不在普通动捕、渲染或原生 PMX 加载时启动。
+导出副本和发行包不包含 Blender、mmd_tools 或 Python worker。`tools/import_pmx_blender.py` 仅保留为受控开发参考脚本。构建时若在旧发行目录发现转换运行时，会将它们移至工作区 `build/retired_conversion_runtime_时间戳/` 留存；包过滤仍拒绝这些组件。
 
 导出后生成 ZIP、同名 `.sha256` 和包内 `SHA256SUMS.txt`，重新逐文件读取 ZIP 验证 SHA-256。校验完成才替换旧归档。与 Release 一起提供完整第三方许可，角色资产不得放入源码或 Release。
 

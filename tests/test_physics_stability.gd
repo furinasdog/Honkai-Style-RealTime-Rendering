@@ -12,6 +12,7 @@ func _run() -> void:
 	var args := OS.get_cmdline_user_args()
 	assert(args.size() == 2, "Pass private metadata.json and report.json")
 	var report := await _real_model(args[0])
+	assert(not report.is_empty(), "Real-model physics stability regression failed")
 	report["hair_head_collision"] = await _head_contact()
 	report["ticks"] = Engine.physics_ticks_per_second
 	var file := FileAccess.open(args[1], FileAccess.WRITE)
@@ -88,6 +89,7 @@ func _real_model(path: String) -> Dictionary:
 	for key in ranked.slice(0, 5):
 		worst[key] = residuals[key]
 	var result := {"bodies": setup.counts.bodies, "joints": setup.counts.joints,
+		"normalized_mode2_children": setup.counts.get("normalized_mode2_children", 0),
 		"cloth_speed_p95_m_s": speeds[int(speeds.size() * 0.95)],
 		"cloth_angular_speed_p95_rad_s": angular_speeds[int(angular_speeds.size() * 0.95)],
 		"maximum_offset_m": maximum_offset, "assisted_pairs": setup.assisted_pairs.size(),

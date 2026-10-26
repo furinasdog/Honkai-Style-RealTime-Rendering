@@ -1,8 +1,10 @@
 extends Node3D
 
-@export_range(-180.0, 180.0) var light_azimuth: float = -20.0
-@export_range(5.0, 85.0) var light_elevation: float = 35.0
-@export_range(-0.5, 0.7) var shadow_threshold: float = 0.12
+const STUDIO_THEME := preload("res://scripts/ui_theme.tres")
+
+@export_range(-180.0, 180.0) var light_azimuth: float = 20.0
+@export_range(5.0, 85.0) var light_elevation: float = 48.4
+@export_range(-0.5, 0.7) var shadow_threshold: float = 0.30
 @export_range(0.0, 3.0) var outline_width: float = 1.15
 
 @onready var actor: Node3D = $Actor
@@ -31,6 +33,8 @@ var main_panel
 var mapping_settings := preload("res://scripts/mapping_settings.gd").new()
 var mapping_panel
 var app_settings
+var capture_alignment := CaptureCalibration.new()
+var calibration_panel
 var video_output
 var capture_preview
 var importer
@@ -39,7 +43,6 @@ var archive_dialog: FileDialog
 var scene_dialog: FileDialog
 var model_dialog: ConfirmationDialog
 var model_list: ItemList
-var compatibility_import: CheckButton
 var background_picker: ColorPickerButton
 var transparent_toggle: CheckButton
 var pmx_outline_toggle: CheckButton
@@ -54,7 +57,11 @@ var _preferences_ready: bool = false
 
 func _ready() -> void:
 	process_priority = -20
+	TranslationServer.set_locale("zh_CN")
 	mapping_settings.load_file()
+	capture_alignment.load_file()
+	capture_alignment.changed.connect(func(): _recenter_capture(false))
+	get_window().title = ProjectSettings.get_setting("application/config/name") + " " + ProjectSettings.get_setting("application/config/version", "")
 	retarget.settings = mapping_settings
 	receiver_error = receiver.open()
 	stage = preload("res://scripts/stage_settings.gd").new()
@@ -64,7 +71,6 @@ func _ready() -> void:
 	add_child(importer)
 	importer.message.connect(func(text: String): notice.text = text)
 	importer.archive_ready.connect(_on_archive_ready)
-	importer.model_ready.connect(_adopt_model)
 	importer.native_model_ready.connect(_adopt_native_model)
 	stage.message.connect(func(text: String): notice.text = text)
 	_build_ui()
@@ -79,14 +85,22 @@ func _ready() -> void:
 	add_child(app_settings)
 	app_settings.setup(camera, get_viewport())
 	app_settings.capture_options_changed.connect(_apply_capture_options)
-	app_settings.blender_path_changed.connect(func(path: String): importer.blender_path = path)
-	importer.blender_path = app_settings.blender_path
+	capture_alignment.set_device(int(app_settings.capture_options.device))
+	calibration_panel = preload("res://scripts/capture_calibration_panel.gd").new()
+	add_child(calibration_panel)
+	calibration_panel.setup(capture_alignment)
+	app_settings.calibration_requested.connect(func():
+		app_settings.hide()
+		calibration_panel.popup_centered(Vector2i(850, 680)))
 	video_output = preload("res://scripts/video_output_panel.gd").new()
 	add_child(video_output)
 	video_output.setup(self)
 	capture_preview = preload("res://scripts/capture_preview.gd").new()
 	add_child(capture_preview)
 	capture_preview.setup(receiver)
+	app_settings.tracking_mode_changed.connect(_apply_tracking_mode)
+	app_settings.recenter_requested.connect(_recenter_capture)
+	_apply_tracking_mode(app_settings.tracking_mode)
 	app_settings.preview_requested.connect(capture_preview.set_enabled)
 	capture_preview.preview_changed.connect(app_settings.set_preview_state)
 	_restore_preferences()
@@ -94,13 +108,13 @@ func _ready() -> void:
 	_set_light()
 	if receiver_error != OK:
 		notice.text = "原生动捕模块加载失败，请检查完整发行文件。"
-	print("MOCAP_READY renderer=", RenderingServer.get_video_adapter_name(), " render_size=", get_viewport().get_texture().get_size())
+	print("MOCAP_READY version=", ProjectSettings.get_setting("application/config/version", ""), " renderer=", RenderingServer.get_video_adapter_name(), " render_size=", get_viewport().get_texture().get_size())
 
 
 func _process(delta: float) -> void:
 	var frame: Dictionary = receiver.poll()
 	if not frame.is_empty():
-		retarget.ingest(frame)
+		retarget.ingest(capture_alignment.correct_frame(frame))
 	if actor.skeleton != null:
 		retarget.update(delta)
 		material_setup.update_head(actor.skeleton)
@@ -113,15 +127,23 @@ func _process(delta: float) -> void:
 		notice.text = "捕捉已结束。" + receiver.get_error()
 	_was_capturing = running
 	notice.visible = not notice.text.is_empty()
+	if notice.tooltip_text != notice.text:
+		notice.tooltip_text = notice.text
 	start_button.disabled = running or actor.skeleton == null or importer.busy
 	stop_button.disabled = not running
 	import_button.disabled = importer.busy or running
 	restore_button.disabled = importer.busy or actor.model_root == null
 	var state: Dictionary = retarget.tracking
-	var connection := "正在捕捉" if receiver.is_live() else ("正在打开摄像头" if running else "已停止")
-	status.text = "%s · 面部 %s · 上肢 %s" % [connection, _tracking_text(state.get("face", false)), _tracking_text(state.get("pose", false))]
+	var connection := "捕捉中" if receiver.is_live() else ("连接摄像头" if running else "就绪")
+	var mode_name := "全身" if retarget.mode == "full_body" else "VTuber"
+	status.text = "%s　%s" % [mode_name, connection] if actor.skeleton != null else "导入角色以开始"
+	if running:
+		status.text += "\n面部 %s　上肢 %s" % [_tracking_text(state.get("face", false)), _tracking_text(state.get("pose", false))]
+		if retarget.mode == "full_body":
+			status.text += "　下肢 %s" % _tracking_text(state.get("lower_body", false))
 	var size := get_viewport().get_texture().get_size()
-	render_status.text = "动捕 %.0f Hz · 渲染 %d FPS\n%d × %d" % [receiver.capture_fps if receiver.is_live() else 0.0, Engine.get_frames_per_second(), size.x, size.y]
+	render_status.text = "%.0f Hz　%d FPS" % [receiver.capture_fps if receiver.is_live() else 0.0, Engine.get_frames_per_second()]
+	render_status.tooltip_text = "动捕更新率 / 渲染帧率　%d × %d" % [size.x, size.y]
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -147,7 +169,7 @@ func start_capture() -> void:
 	retarget.reset()
 	if receiver.start(app_settings.capture_options):
 		_was_capturing = true
-		notice.text = "正在打开摄像头，请让脸、肩膀和双手进入画面。"
+		notice.text = "请让全身入镜" if retarget.mode == "full_body" else "请让脸和双手入镜"
 	else:
 		notice.text = "捕捉启动失败：" + receiver.get_error()
 
@@ -185,19 +207,14 @@ func _build_ui() -> void:
 	hud = CanvasLayer.new()
 	hud.name = "HUD"
 	add_child(hud)
-	var theme := Theme.new()
-	var font := SystemFont.new()
-	font.oversampling = 2.0
-	font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC"])
-	theme.default_font = font
-	theme.default_font_size = 16
+	var theme := STUDIO_THEME
 	main_panel = preload("res://scripts/floating_panel.gd").new()
 	main_panel.position = Vector2(20, 20)
 	main_panel.custom_minimum_size.x = 300
 	main_panel.theme = theme
 	main_panel.add_theme_stylebox_override("panel", _panel_style())
 	hud.add_child(main_panel)
-	main_panel.setup("Honkai Render · 动捕")
+	main_panel.setup("Honkai Render")
 	var box: VBoxContainer = main_panel.body
 	var entries := GridContainer.new()
 	entries.columns = 3
@@ -209,26 +226,31 @@ func _build_ui() -> void:
 	var controls := HBoxContainer.new()
 	box.add_child(controls)
 	start_button = _button(controls, "开始捕捉", start_capture)
+	start_button.theme_type_variation = "PrimaryButton"
 	start_button.disabled = true
 	stop_button = _button(controls, "停止", stop_capture)
 	stop_button.disabled = true
-	status = _label(box, "请先导入角色", 14, Color("d8e4e6"))
+	status = _label(box, "请先导入角色", 14, STUDIO_THEME.get_color("text", "Studio"))
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status.custom_minimum_size.x = 270
-	notice = _label(box, "导入 PMX 模型后即可开始捕捉。", 14, Color("d5c49c"))
+	notice = _label(box, "导入 PMX 模型后即可开始捕捉。", 14, STUDIO_THEME.get_color("warning", "Studio"))
 	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	notice.custom_minimum_size.x = 270
-	render_status = _label(box, "", 13, Color("9aabb8"))
+	notice.max_lines_visible = 3
+	notice.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	render_status = _label(box, "", 13, STUDIO_THEME.get_color("muted", "Studio"))
 
 	var model := _menu_page("模型", theme)
-	model_label = _label(model, "未导入角色", 22, Color("edf2f2"))
+	model_label = _label(model, "未导入角色", 22, STUDIO_THEME.get_color("text", "Studio"))
 	model_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	import_button = _button(model, "导入模型压缩包…", _show_archive_dialog)
+	import_button.theme_type_variation = "PrimaryButton"
 	restore_button = _button(model, "卸载当前角色", _unload_model)
-	_label(model, "可拖入 ZIP / 7z，再选择包内的 PMX。\n程序和发行包均不附带角色模型。", 15, Color("a7b7c1"))
-	physics_status = _label(model, "", 14, Color("a7b7c1"))
+	_label(model, "拖入 ZIP / 7z，选择角色 PMX。", 15, STUDIO_THEME.get_color("muted", "Studio"))
+	physics_status = _label(model, "", 14, STUDIO_THEME.get_color("muted", "Studio"))
 	body_collision_toggle = CheckButton.new()
-	body_collision_toggle.text = "头发与身体防穿模辅助"
+	body_collision_toggle.text = "头发碰撞辅助"
+	body_collision_toggle.tooltip_text = "补充头发与身体的碰撞，效果取决于模型代理形状，不能保证任意动作都无穿模。"
 	body_collision_toggle.button_pressed = body_collision_assistance
 	body_collision_toggle.toggled.connect(func(enabled: bool):
 		body_collision_assistance = enabled
@@ -236,7 +258,6 @@ func _build_ui() -> void:
 			cloth_setup.set_body_collision_assistance(enabled)
 		_save_preferences())
 	model.add_child(body_collision_toggle)
-	_button(model, "模型转换器设置…", func(): app_settings.popup_section(2))
 
 	var graphics := _menu_page("画面", theme)
 	_button(graphics, "相机与抗锯齿…", func(): app_settings.popup_section(0))
@@ -255,11 +276,11 @@ func _build_ui() -> void:
 	_slider(graphics, "明暗分界", -0.5, 0.7, shadow_threshold, func(value: float):
 		shadow_threshold = value
 		material_setup.set_shadow_threshold(value))
-	_slider(graphics, "MMD 几何描边", 0, 3, outline_width, func(value: float):
+	_slider(graphics, "描边宽度", 0, 3, outline_width, func(value: float):
 		outline_width = value
 		material_setup.set_outline_width(value))
 	pmx_outline_toggle = CheckButton.new()
-	pmx_outline_toggle.text = "使用 PMX 原始描边色"
+	pmx_outline_toggle.text = "使用模型描边色"
 	pmx_outline_toggle.toggled.connect(func(enabled: bool):
 		material_setup.set_pmx_outline_colors(enabled)
 		_save_preferences())
@@ -271,11 +292,11 @@ func _build_ui() -> void:
 
 	var scene := _menu_page("场景", theme)
 	transparent_toggle = CheckButton.new()
-	transparent_toggle.text = "透明角色背景"
+	transparent_toggle.text = "透明背景"
+	transparent_toggle.tooltip_text = "保留系统标题栏。按 H 隐藏或恢复操作界面。"
 	transparent_toggle.button_pressed = stage.transparent
 	transparent_toggle.toggled.connect(_set_transparent)
 	scene.add_child(transparent_toggle)
-	_label(scene, "保留系统标题栏。按 H 隐藏或恢复界面。", 15, Color("a7b7c1"))
 	background_picker = ColorPickerButton.new()
 	background_picker.color = stage.background_color
 	background_picker.text = "背景颜色"
@@ -288,37 +309,28 @@ func _build_ui() -> void:
 	_button(scene, "清除场景", func(): stage.clear_asset(); _save_preferences())
 
 	var application := _menu_page("应用", theme)
-	_label(application, "针对米哈游卡通风格优化的实时角色动捕。\n面部、手势与上肢映射；OBS 透明视频输出。", 16, Color("d8e4e6"))
+	_label(application, "实时角色动捕　OBS 透明输出", 16, STUDIO_THEME.get_color("text", "Studio"))
 	var scale_row := HBoxContainer.new()
 	application.add_child(scale_row)
-	_label(scale_row, "界面缩放", 16, Color.WHITE)
+	_label(scale_row, "界面缩放", 16, STUDIO_THEME.get_color("text", "Studio"))
 	var scale_select := OptionButton.new()
 	for amount in [100, 125, 150, 175, 200]:
 		scale_select.add_item("%d%%" % amount)
 	scale_select.item_selected.connect(func(index: int): _set_ui_scale([1.0, 1.25, 1.5, 1.75, 2.0][index]))
 	scale_row.add_child(scale_select)
 	menu_windows["应用"].set_meta("scale_select", scale_select)
-	_label(application, "中键旋转 · Shift + 中键平移 · 滚轮缩放\n小键盘切换视角 · Home 重新取景\nH 隐藏界面 · F12 保存截图", 15, Color("a7b7c1"))
+	_label(application, "中键旋转 · Shift + 中键平移 · 滚轮缩放\n小键盘切换视角 · Home 重新取景\nH 隐藏界面 · F12 保存截图", 15, STUDIO_THEME.get_color("muted", "Studio"))
 
 
 func _panel_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color("111820")
-	style.border_color = Color("394954")
-	style.set_border_width_all(1)
-	style.set_corner_radius_all(8)
-	style.content_margin_left = 16
-	style.content_margin_right = 16
-	style.content_margin_top = 14
-	style.content_margin_bottom = 14
-	return style
+	return STUDIO_THEME.get_stylebox("panel", "StudioPanel").duplicate()
 
 
 func _menu_page(section: String, theme: Theme) -> VBoxContainer:
 	var window := Window.new()
 	window.title = section
-	window.size = Vector2i(590, 540)
-	window.min_size = Vector2i(490, 450)
+	window.size = {"模型": Vector2i(560, 390), "画面": Vector2i(590, 570), "场景": Vector2i(520, 330), "应用": Vector2i(540, 330)}[section]
+	window.min_size = Vector2i(420, 260)
 	window.visible = false
 	window.transient = true
 	window.transparent = false
@@ -346,6 +358,7 @@ func _open_menu(section: String) -> void:
 	mapping_panel.hide()
 	app_settings.hide()
 	video_output.hide()
+	calibration_panel.hide()
 	match section:
 		"捕捉": app_settings.popup_section(1)
 		"映射": mapping_panel.popup_centered(Vector2i(820, 620))
@@ -367,6 +380,9 @@ func _set_ui_scale(value: float) -> void:
 	app_settings.content_scale_factor = _ui_scale
 	video_output.content_scale_factor = _ui_scale
 	capture_preview.content_scale_factor = _ui_scale
+	calibration_panel.content_scale_factor = _ui_scale
+	for dialog: Window in [archive_dialog, scene_dialog, model_dialog]:
+		dialog.content_scale_factor = _ui_scale
 	var selector: OptionButton = menu_windows["应用"].get_meta("scale_select")
 	selector.select([1.0, 1.25, 1.5, 1.75, 2.0].find(_ui_scale))
 	_save_preferences()
@@ -425,23 +441,18 @@ func _build_model_dialogs() -> void:
 	model_dialog.ok_button_text = "载入并使用"
 	var layout := VBoxContainer.new()
 	model_dialog.add_child(layout)
-	_label(layout, "请选择要使用的角色，贴图会一并导入。", 16, Color.WHITE)
+	_label(layout, "请选择要使用的角色，贴图会一并导入。", 16, STUDIO_THEME.get_color("text", "Studio"))
 	model_list = ItemList.new()
-	model_list.custom_minimum_size = Vector2(700, 330)
+	model_list.custom_minimum_size = Vector2(0, 180)
 	model_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	model_list.item_selected.connect(func(_index: int): model_dialog.get_ok_button().disabled = false)
 	model_list.item_activated.connect(func(_index: int): _convert_selected_model(); model_dialog.hide())
 	layout.add_child(model_list)
-	compatibility_import = CheckButton.new()
-	compatibility_import.text = "使用 Blender 兼容转换（需要另装兼容组件）"
-	compatibility_import.tooltip_text = "通常保持关闭，直接由 C++ 加载 PMX。仅在原生导入不支持该模型时尝试。"
-	layout.add_child(compatibility_import)
 	model_dialog.confirmed.connect(_convert_selected_model)
 	add_child(model_dialog)
 
 
 func _on_archive_ready(models: Array) -> void:
-	compatibility_import.set_pressed_no_signal(false)
 	archive_dialog.hide()
 	scene_dialog.hide()
 	mapping_panel.hide()
@@ -450,7 +461,8 @@ func _on_archive_ready(models: Array) -> void:
 	_archive_models = models
 	model_list.clear()
 	for item: Dictionary in models:
-		model_list.add_item(str(item.path))
+		var index := model_list.add_item(str(item.path))
+		model_list.set_item_tooltip(index, str(item.path))
 	model_list.select(0)
 	model_dialog.get_ok_button().disabled = false
 	await get_tree().process_frame
@@ -462,7 +474,7 @@ func _convert_selected_model() -> void:
 	var selected := model_list.get_selected_items()
 	if selected.is_empty():
 		return
-	importer.convert_selected(str(_archive_models[selected[0]].path), compatibility_import.button_pressed)
+	importer.convert_selected(str(_archive_models[selected[0]].path))
 
 
 func _on_files_dropped(files: PackedStringArray) -> void:
@@ -502,6 +514,7 @@ func _unload_model() -> void:
 	cloth_setup = null
 	actor.clear_model()
 	retarget = preload("res://scripts/mocap_retarget.gd").new()
+	retarget.set_mode(app_settings.tracking_mode)
 	retarget.settings = mapping_settings
 	_model_metadata_path = ""
 	model_label.text = "未导入角色"
@@ -512,6 +525,7 @@ func _unload_model() -> void:
 func _install_candidate(candidate: Node3D, metadata: Dictionary, metadata_path: String, persist: bool) -> bool:
 	var rig: Skeleton3D = actor.find_rig(candidate)
 	var next_retarget := preload("res://scripts/mocap_retarget.gd").new()
+	next_retarget.set_mode(app_settings.tracking_mode)
 	next_retarget.settings = mapping_settings
 	if not next_retarget.apply(rig, candidate):
 		candidate.free()
@@ -631,8 +645,26 @@ func _restore_preferences() -> void:
 
 
 func _apply_capture_options(_options: Dictionary) -> void:
+	capture_alignment.set_device(int(_options.device))
 	if receiver.is_running():
 		stop_capture()
 		start_capture()
 	else:
 		notice.text = "摄像头设置已保存，下次开始捕捉时使用。"
+
+
+func _apply_tracking_mode(value: String) -> void:
+	retarget.set_mode(value)
+	capture_preview.set_capture_mode(value)
+	if cloth_setup != null:
+		cloth_setup.reset()
+	if _preferences_ready:
+		notice.text = "全身模式：请站直并让双脚入镜" if value == "full_body" else "VTuber 模式"
+
+
+func _recenter_capture(show_notice: bool = true) -> void:
+	retarget.recenter()
+	if cloth_setup != null:
+		cloth_setup.reset()
+	if show_notice and notice != null:
+		notice.text = "站姿已重置"

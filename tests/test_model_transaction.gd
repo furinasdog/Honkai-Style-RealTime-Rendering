@@ -14,7 +14,9 @@ func _run() -> void:
 	root.add_child(scene)
 	await process_frame
 	scene._preferences_ready = false
+	scene.app_settings._set_mode(1)
 	assert(scene._adopt_model(metadata.model_file, metadata, args[0], false))
+	assert(scene.retarget.mode == "full_body", "Imported models must retain the selected capture mode")
 	var previous: Node3D = scene.actor.model_root
 	assert(previous != null and scene.actor.skeleton != null)
 	var broken := "res://outputs/invalid_model_transaction.pmx"

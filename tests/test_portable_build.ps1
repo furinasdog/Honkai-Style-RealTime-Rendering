@@ -33,9 +33,16 @@ Assert-Rejected { Assert-NativePackage $legacy }
 $worker = Join-Path $fixture 'worker'
 [void][IO.Directory]::CreateDirectory((Join-Path $worker 'runtime/importer'))
 Write-Utf8File (Join-Path $worker 'runtime/importer/import_pmx_blender.py') 'fixture'
-Assert-NativePackage $worker
+Assert-Rejected { Assert-NativePackage $worker }
 Write-Utf8File (Join-Path $worker 'runtime/importer/model_import.py') 'fixture'
 Assert-Rejected { Assert-NativePackage $worker }
+foreach ($retiredRuntime in @('runtime/blender/blender.exe', 'runtime/python/python.exe', 'runtime/python/python312.dll', 'runtime/mmd_tools/manifest.json')) {
+    $runtimeFixture = Join-Path $fixture ([IO.Path]::GetFileNameWithoutExtension($retiredRuntime))
+    $runtimeFile = Join-Path $runtimeFixture $retiredRuntime
+    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($runtimeFile))
+    Write-Utf8File $runtimeFile 'fixture'
+    Assert-Rejected { Assert-NativePackage $runtimeFixture }
+}
 $helper = Join-Path $fixture 'log helper.ps1'
 Write-Utf8File $helper "param([string]`$Value)`nWrite-Output ('VALUE=' + `$Value)`n"
 $shell = (Get-Process -Id $PID).Path

@@ -16,10 +16,21 @@ func _run() -> void:
 	assert(scene.stage.transparent and root.transparent_bg)
 	assert(not root.borderless, "Transparency must retain the system title bar")
 	assert(scene.menu_windows.size() == 4)
+	assert(scene.retarget.mode == "vtuber" and scene.app_settings.tracking_mode == "vtuber")
 	scene._open_menu("捕捉")
 	assert(scene.app_settings.visible and scene.app_settings._tabs.current_tab == 1)
+	assert(scene.app_settings._tabs.get_tab_count() == 2)
+	scene.app_settings._mode.item_selected.emit(1)
+	assert(scene.retarget.mode == "full_body" and scene.capture_preview._mode == "full_body" and not scene.receiver.is_running())
+	scene.app_settings.recenter_requested.emit()
+	scene.app_settings._mode.item_selected.emit(0)
+	var camera_transform: Transform3D = scene.camera.transform
+	scene.app_settings.calibration_requested.emit()
+	assert(scene.calibration_panel.visible and not scene.app_settings.visible)
+	scene.capture_alignment.update_profile({"enabled": true, "position": [1.0, 0.3, 1.5]})
+	assert(scene.camera.transform == camera_transform, "Capture calibration must not move the presentation camera")
 	scene._open_menu("模型")
-	assert(scene.menu_windows["模型"].visible and not scene.app_settings.visible)
+	assert(scene.menu_windows["模型"].visible and not scene.app_settings.visible and not scene.calibration_panel.visible)
 	scene.menu_windows["模型"].hide()
 	scene.main_panel.set_collapsed(true)
 	assert(scene.main_panel.collapsed and not scene.main_panel.body.visible)
@@ -35,10 +46,23 @@ func _run() -> void:
 			assert(image.get_pixel(30, 30).a > 0.99, "Navigation must remain opaque")
 			var path := "res://outputs/ui_%d.png" % size.x
 			assert(root.get_texture().get_image().save_png(path) == OK)
-		scene._set_ui_scale(1.5)
-		await process_frame
-		await RenderingServer.frame_post_draw
-		assert(root.get_texture().get_image().save_png("res://outputs/ui_150percent.png") == OK)
+		for scale in [1.0, 1.5, 2.0]:
+			scene._set_ui_scale(scale)
+			for section: String in ["模型", "画面", "场景", "应用", "捕捉"]:
+				scene._open_menu(section)
+				await process_frame
+				await RenderingServer.frame_post_draw
+				var window: Window = scene.app_settings if section == "捕捉" else scene.menu_windows[section]
+				assert(window.get_texture().get_image().save_png("res://outputs/ui_%s_%d.png" % [section, scale * 100]) == OK)
+				scene.app_settings.calibration_requested.emit()
+			await process_frame
+			await RenderingServer.frame_post_draw
+			assert(scene.calibration_panel.get_texture().get_image().save_png("res://outputs/ui_calibration_%d.png" % (scale * 100)) == OK)
+			assert(scene.calibration_panel._views.columns == (2 if scale == 1.0 else 1))
+			scene.calibration_panel.hide()
+			await process_frame
+			await RenderingServer.frame_post_draw
+			assert(root.get_texture().get_image().save_png("res://outputs/ui_navigation_%d.png" % (scale * 100)) == OK)
 	assert(not scene.receiver.is_running())
 	scene.queue_free()
 	await process_frame

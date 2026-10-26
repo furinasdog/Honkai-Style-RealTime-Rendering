@@ -82,6 +82,15 @@ func _run() -> void:
 	assert(panel.selected_channel == "left_arm" and panel._channel_buttons.size() == 4)
 	await process_frame
 	assert(panel.get_child(0).get_combined_minimum_size().y <= 620, "Settings controls must fit the default window height")
+	panel.content_scale_factor = 2.0
+	panel.size = Vector2i(740, 570)
+	for frame in 3:
+		await process_frame
+	assert(panel._content.columns == 1 and panel._curve_layout.columns == 1, "Narrow scaled windows must stack the channel list and curve controls")
+	assert(panel._content.get_combined_minimum_size().x <= panel._body_scroll.size.x, "Scaled controls must remain horizontally reachable")
+	panel.content_scale_factor = 1.0
+	panel.size = Vector2i(820, 620)
+	await process_frame
 	panel.set_available_channels(["head_x", "left_arm"])
 	panel._tabs.current_tab = 0
 	assert(panel.selected_channel == "head_x" and panel._enabled_checks.left_eye.disabled)

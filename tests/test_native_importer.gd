@@ -14,6 +14,12 @@ func _run() -> void:
 	evidence = args[2]
 	create_timer(90.0).timeout.connect(func(): push_error("Native import timed out"); quit(1))
 	importer = load("res://scripts/model_importer.gd").new()
+	assert(not importer.has_signal("model_ready"), "The retired GLB converter signal must not remain")
+	var convert_arguments := -1
+	for method: Dictionary in importer.get_method_list():
+		if method.name == "convert_selected":
+			convert_arguments = method.args.size()
+	assert(convert_arguments == 1, "Native PMX selection must not expose a converter argument")
 	importer._cache = evidence.path_join("cache")
 	root.add_child(importer)
 	importer.message.connect(func(value: String):
@@ -24,7 +30,6 @@ func _run() -> void:
 	importer.archive_ready.connect(func(_models: Array): importer.convert_selected(args[1]))
 	importer.native_model_ready.connect(func(model: Node3D, metadata: Dictionary, path: String):
 		assert(metadata.loader == "native_pmx_v1")
-		assert(importer._pid == 0, "Native PMX import must not launch Blender or another helper")
 		assert(FileAccess.file_exists(path) and FileAccess.file_exists(metadata.model_file))
 		assert(model.get_node("MMDMesh").mesh.get_surface_count() > 0)
 		var file := FileAccess.open(evidence.path_join("result.json"), FileAccess.WRITE)

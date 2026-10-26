@@ -28,8 +28,9 @@ const MORPH_ALIASES := {
 	"怒り": ["browDown", "Fcl_BRW_Angry"], "困る": ["browSad", "Fcl_BRW_Sorrow"]}
 
 var smoothing_speed: float = 14.0
+var mode := "vtuber"
 var age_seconds: float = INF
-var tracking := {"pose": false, "face": false, "hands": 0, "left_hand": false, "right_hand": false}
+var tracking := {"pose": false, "face": false, "hands": 0, "left_hand": false, "right_hand": false, "lower_body": false, "left_leg": false, "right_leg": false}
 var skeleton: Skeleton3D
 var settings: RefCounted
 var warnings: Array[String] = []
@@ -47,9 +48,25 @@ var _last_timestamp_ms: float = -1.0
 var _frame_delta: float = 1.0 / 30.0
 var _bone_channels := {}
 var _joint_axes := {}
+var _fullbody: RefCounted
+var _body_delta := Basis.IDENTITY
+
+
+func set_mode(value: String) -> bool:
+	if value not in ["vtuber", "full_body"]:
+		return false
+	if mode != value:
+		mode = value
+		reset()
+	return true
+
+
+func recenter() -> void:
+	reset()
 
 
 func apply(rig: Skeleton3D, model_root: Node3D) -> bool:
+	_fullbody = null
 	_indices.clear()
 	_neutral_local.clear()
 	_neutral_global.clear()
@@ -82,6 +99,12 @@ func apply(rig: Skeleton3D, model_root: Node3D) -> bool:
 		var index := _resolve_bone(name, bone_names)
 		if index >= 0:
 			_indices[name] = index
+	_fullbody = preload("res://scripts/fullbody_retarget.gd").new()
+	_fullbody.setup(rig, model_root, _neutral_global, _neutral_local)
+	capabilities.left_leg = _fullbody.has_side("left")
+	capabilities.right_leg = _fullbody.has_side("right")
+	capabilities.lower_body = capabilities.left_leg or capabilities.right_leg
+	warnings.append_array(_fullbody.warnings)
 	for side: String in SIDES:
 		var prefix: String = SIDES[side]
 		var side_id := "left" if side == "Left" else "right"
@@ -142,8 +165,17 @@ func ingest(frame: Dictionary) -> bool:
 	_set_neutral_targets()
 	tracking = {"pose": false, "face": false, "hands": 0, "left_hand": false, "right_hand": false}
 	var pose = frame.get("pose")
+	_body_delta = Basis.IDENTITY
+	if mode == "full_body":
+		_fullbody.ingest(pose.world if pose is Dictionary else [], pose.image if pose is Dictionary else [])
+		tracking.merge(_fullbody.tracking(), true)
+		tracking.pose = tracking.lower_body
+	else:
+		tracking.merge({"lower_body": false, "left_leg": false, "right_leg": false})
 	if pose is Dictionary:
 		_apply_pose(pose.world, pose.image)
+	if mode == "full_body":
+		_global_targets.merge(_fullbody.global_targets, true)
 	var used_sides := {}
 	for hand: Dictionary in frame.get("hands", []):
 		if not _image_visible(hand.image, range(21)):
@@ -171,6 +203,9 @@ func ingest(frame: Dictionary) -> bool:
 	for index: int in _bone_channels:
 		if _global_targets.has(index):
 			_targets[index] = _map_joint_rotation(index, _targets[index], _bone_channels[index])
+	if mode == "full_body":
+		_fullbody.capture_targets(_targets)
+		_targets.merge(_fullbody.fallback_targets(), true)
 	return true
 
 
@@ -178,13 +213,23 @@ func update(delta: float) -> void:
 	if skeleton == null or not is_finite(delta) or delta < 0.0:
 		return
 	age_seconds += delta
+	if mode == "full_body":
+		_fullbody.advance(delta)
+		tracking.merge(_fullbody.tracking(), true)
 	if age_seconds > TRACKING_TIMEOUT:
 		_set_neutral_targets()
 		tracking = {"pose": false, "face": false, "hands": 0, "left_hand": false, "right_hand": false}
+		tracking.merge({"lower_body": false, "left_leg": false, "right_leg": false})
+	if mode == "full_body":
+		_targets.merge(_fullbody.fallback_targets(), true)
 	var weight := 1.0 - exp(-clampf(smoothing_speed, 1.0, 40.0) * minf(delta, 0.1))
 	for index: int in _targets:
 		var current := skeleton.get_bone_pose_rotation(index)
 		skeleton.set_bone_pose_rotation(index, current.slerp(_targets[index], weight).normalized())
+	if _fullbody != null and _fullbody.root_index >= 0:
+		var root_index: int = _fullbody.root_index
+		var target: Vector3 = _fullbody.root_position
+		skeleton.set_bone_pose_position(root_index, skeleton.get_bone_pose_position(root_index).lerp(target, weight))
 	for binding in _morph_bindings:
 		var mesh: MeshInstance3D = binding.mesh
 		var value := lerpf(mesh.get_blend_shape_value(binding.index), _morph_targets[binding.name], weight)
@@ -196,14 +241,20 @@ func reset() -> void:
 	_last_sequence = -1
 	_last_timestamp_ms = -1.0
 	_joint_axes.clear()
+	_body_delta = Basis.IDENTITY
+	if _fullbody != null:
+		_fullbody.reset()
 	if settings != null:
 		settings.reset_filters()
 	tracking = {"pose": false, "face": false, "hands": 0, "left_hand": false, "right_hand": false}
+	tracking.merge({"lower_body": false, "left_leg": false, "right_leg": false})
 	_set_neutral_targets()
 	if skeleton == null:
 		return
 	for index: int in _targets:
 		skeleton.set_bone_pose_rotation(index, _targets[index])
+	if _fullbody != null and _fullbody.root_index >= 0:
+		skeleton.set_bone_pose_position(_fullbody.root_index, _fullbody.root_position)
 	for binding in _morph_bindings:
 		binding.mesh.set_blend_shape_value(binding.index, binding.neutral)
 
@@ -213,6 +264,9 @@ func _set_neutral_targets() -> void:
 	_resolved_bases.clear()
 	for index: int in _indices.values():
 		_targets[index] = _neutral_local[index]
+	if _fullbody != null:
+		for index: int in _fullbody.indices():
+			_targets[index] = _neutral_local[index]
 	for binding in _morph_bindings:
 		_morph_targets[binding.name] = binding.neutral
 
@@ -226,20 +280,62 @@ func _apply_pose(points: Array, image: Array) -> void:
 			up = (_point(points[11]) + _point(points[12]) - _point(points[23]) - _point(points[24])) * 0.5
 		var body := _frame(across, up)
 		if body != INVALID_FRAME:
-			var angles := body.get_euler()
-			angles = Vector3(clampf(angles.x, -0.35, 0.35), clampf(angles.y, -0.65, 0.65), clampf(angles.z, -0.3, 0.3))
-			var rotation := Basis.from_euler(angles).get_rotation_quaternion()
+			if mode == "full_body":
+				body *= _fullbody.body_reference.inverse()
+			var rotation := body.get_rotation_quaternion()
+			if mode == "vtuber":
+				var angles := body.get_euler()
+				angles = Vector3(clampf(angles.x, -0.35, 0.35), clampf(angles.y, -0.65, 0.65), clampf(angles.z, -0.3, 0.3))
+				rotation = Basis.from_euler(angles).get_rotation_quaternion()
 			body_delta = Basis(rotation)
-			_set_delta("上半身", Quaternion.IDENTITY.slerp(rotation, 0.35))
+			_body_delta = body_delta
+			var base: Quaternion = _fullbody.pelvis_delta.get_rotation_quaternion() if mode == "full_body" else Quaternion.IDENTITY
+			_set_delta("上半身", base.slerp(rotation, 0.35))
 			_set_delta("上半身2", rotation)
 	for side: String in SIDES:
 		var joint := [11, 13, 15] if side == "Left" else [12, 14, 16]
 		var prefix: String = SIDES[side]
 		if not _visible(points, joint) or not _image_visible(image, joint) or not _has_chain(prefix) or not _channel_enabled("left_arm" if side == "Left" else "right_arm"):
 			continue
-		_aim(prefix + "腕", prefix + "ひじ", _point(points[joint[1]]) - _point(points[joint[0]]), body_delta)
-		_aim(prefix + "ひじ", prefix + "手首", _point(points[joint[2]]) - _point(points[joint[1]]), body_delta)
+		var upper := _point(points[joint[1]]) - _point(points[joint[0]])
+		var lower := _point(points[joint[2]]) - _point(points[joint[1]])
+		var arm_delta := _arm_delta(prefix, upper, lower, body_delta)
+		_aim(prefix + "腕", prefix + "ひじ", upper, arm_delta)
+		_aim(prefix + "ひじ", prefix + "手首", lower, arm_delta)
 		tracking.pose = true
+
+
+func _arm_delta(side: String, upper: Vector3, lower: Vector3, body_delta: Basis) -> Basis:
+	var shoulder: Vector3 = _neutral_global[_indices[side + "腕"]].origin
+	var elbow: Vector3 = _neutral_global[_indices[side + "ひじ"]].origin
+	var wrist: Vector3 = _neutral_global[_indices[side + "手首"]].origin
+	var neutral_upper := (elbow - shoulder).normalized()
+	var neutral_lower := (wrist - elbow).normalized()
+	if neutral_upper.is_zero_approx() or upper.is_zero_approx() or lower.is_zero_approx():
+		return body_delta
+	var swing := Basis(Quaternion(body_delta * neutral_upper, upper.normalized())) * body_delta
+	# Near-straight elbows have no reliable bend plane; retain the torso-carried swing.
+	var reliability := upper.normalized().cross(lower.normalized()).length()
+	var weight := clampf((reliability - 0.05) / 0.15, 0.0, 1.0)
+	if weight <= 0.0:
+		return swing
+	var reference := neutral_lower
+	if neutral_upper.cross(neutral_lower).length() < 0.05:
+		# shortcut: straight rest arms assume forward flexion; use an authored hinge axis when available.
+		reference = Vector3.BACK
+		if _indices.has("左腕") and _indices.has("右腕"):
+			var across: Vector3 = _neutral_global[_indices["左腕"]].origin - _neutral_global[_indices["右腕"]].origin
+			var torso_frame := _frame(across, Vector3.UP)
+			if torso_frame != INVALID_FRAME:
+				reference = torso_frame.z
+		if absf(neutral_upper.dot(reference)) > 0.95:
+			reference = Vector3.UP
+	var neutral_frame := _frame(reference, neutral_upper)
+	var measured_frame := _frame(lower, upper)
+	if neutral_frame == INVALID_FRAME or measured_frame == INVALID_FRAME:
+		return swing
+	var plane_delta := measured_frame * neutral_frame.inverse()
+	return Basis(swing.get_rotation_quaternion().slerp(plane_delta.get_rotation_quaternion(), weight))
 
 
 func _apply_hand(side: String, points: Array) -> void:
@@ -288,11 +384,18 @@ func _apply_face(face: Dictionary) -> void:
 	var basis := Basis(Vector3(matrix[0], matrix[4], matrix[8]), Vector3(matrix[1], matrix[5], matrix[9]), Vector3(matrix[2], matrix[6], matrix[10]))
 	if basis.determinant() < 0.1:
 		return
-	var angles := basis.orthonormalized().get_euler()
+	basis = basis.orthonormalized()
+	if mode == "full_body":
+		basis = _body_delta.inverse() * basis
+	var angles := basis.get_euler()
 	angles = Vector3(_mapped("head_x", angles.x), _mapped("head_y", angles.y), _mapped("head_z", angles.z))
 	angles = Vector3(clampf(angles.x, -0.65, 0.65), clampf(angles.y, -1.0, 1.0), clampf(angles.z, -0.55, 0.55))
 	var head_rotation := Basis.from_euler(angles).get_rotation_quaternion()
-	_set_delta("首", Quaternion.IDENTITY.slerp(head_rotation, 0.35))
+	var neck_rotation := Quaternion.IDENTITY.slerp(head_rotation, 0.35)
+	if mode == "full_body":
+		neck_rotation = _body_delta.get_rotation_quaternion() * neck_rotation
+		head_rotation = _body_delta.get_rotation_quaternion() * head_rotation
+	_set_delta("首", neck_rotation)
 	_set_delta("頭", head_rotation)
 
 
@@ -301,7 +404,17 @@ func _aim(name: String, child_name: String, measured: Vector3, reference_delta: 
 		return
 	var index: int = _indices[name]
 	var neutral: Transform3D = _neutral_global[index]
-	var direction: Vector3 = (_neutral_global[_indices[child_name]].origin - neutral.origin) if not child_name.is_empty() else neutral.basis.y
+	var direction: Vector3
+	if not child_name.is_empty():
+		direction = _neutral_global[_indices[child_name]].origin - neutral.origin
+	else:
+		var tails = skeleton.get_meta("pmx_tail_offsets", PackedVector3Array())
+		if tails is PackedVector3Array and index < tails.size() and tails[index].is_finite():
+			direction = neutral.basis * skeleton.get_bone_global_rest(index).basis.inverse() * tails[index]
+		if direction.length_squared() < 0.00000001:
+			var parent := skeleton.get_bone_parent(index)
+			# shortcut: absent authored tails use the previous segment; add a rig profile for curved terminal bones.
+			direction = neutral.origin - _neutral_global[parent].origin if parent >= 0 else Vector3.ZERO
 	if direction.length_squared() < 0.00000001:
 		return
 	direction = reference_delta * direction

@@ -1,9 +1,10 @@
 extends Window
 
 const SETTINGS = preload("res://scripts/mapping_settings.gd")
-const INK := Color("dfe5df")
-const MUTED := Color("95a7a5")
-const ACCENT := Color("ffd181")
+const UI_THEME = preload("res://scripts/ui_theme.tres")
+const INK := "text"
+const MUTED := "muted"
+const ACCENT := "accent"
 
 class ResponseCurve extends Control:
 	var model
@@ -13,14 +14,14 @@ class ResponseCurve extends Control:
 			queue_redraw()
 	func _draw() -> void:
 		var box := Rect2(Vector2(8, 8), size - Vector2(16, 16))
-		draw_rect(Rect2(Vector2.ZERO, size), Color("08181d"))
-		draw_rect(Rect2(Vector2.ZERO, size), Color("314545"), false, 1.0)
+		draw_rect(Rect2(Vector2.ZERO, size), get_theme_color("field", "Studio"))
+		draw_rect(Rect2(Vector2.ZERO, size), get_theme_color("border", "Studio"), false, 1.0)
 		if model == null or not model.channels.has(channel_id) or box.size.x <= 0 or box.size.y <= 0:
 			return
 		for line in 5:
 			var t := float(line) / 4.0
-			draw_line(box.position + Vector2(box.size.x * t, 0), box.position + Vector2(box.size.x * t, box.size.y), Color(0.3, 0.4, 0.4, 0.25))
-			draw_line(box.position + Vector2(0, box.size.y * t), box.position + Vector2(box.size.x, box.size.y * t), Color(0.3, 0.4, 0.4, 0.25))
+			draw_line(box.position + Vector2(box.size.x * t, 0), box.position + Vector2(box.size.x * t, box.size.y), get_theme_color("grid", "Studio"))
+			draw_line(box.position + Vector2(0, box.size.y * t), box.position + Vector2(box.size.x, box.size.y * t), get_theme_color("grid", "Studio"))
 		var bipolar: bool = model.channels[channel_id].bipolar
 		var floor := -1.0 if bipolar else 0.0
 		var points := PackedVector2Array()
@@ -29,19 +30,21 @@ class ResponseCurve extends Control:
 			var output: float = model.response_value(channel_id, lerpf(floor, 1.0, x))
 			var y := (output - floor) / (1.0 - floor)
 			points.append(box.position + Vector2(x * box.size.x, (1.0 - y) * box.size.y))
-		draw_polyline(points, Color("dfe5df"), 2.0, true)
+		draw_polyline(points, get_theme_color("text", "Studio"), 2.0, true)
 		if model.input_values.has(channel_id):
 			var raw := clampf(float(model.input_values[channel_id]), floor, 1.0)
 			var output: float = model.output_values.get(channel_id, 0.0)
 			var point := Vector2((raw - floor) / (1.0 - floor), 1.0 - (output - floor) / (1.0 - floor))
-			draw_circle(box.position + point * box.size, 4.5, Color("ffd181"))
+			draw_circle(box.position + point * box.size, 4.5, get_theme_color("accent", "Studio"))
 
 var model
 var selected_channel := "left_eye"
 var _built := false
 var _refreshing := false
 var _tabs: TabBar
-var _content: HBoxContainer
+var _content: GridContainer
+var _body_scroll: ScrollContainer
+var _curve_layout: GridContainer
 var _options: VBoxContainer
 var _list: VBoxContainer
 var _title: Label
@@ -101,14 +104,8 @@ func _build() -> void:
 	visible = false
 	var root := PanelContainer.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var background := StyleBoxFlat.new()
-	background.bg_color = Color("101c1d")
-	background.content_margin_left = 16
-	background.content_margin_right = 16
-	background.content_margin_top = 12
-	background.content_margin_bottom = 12
-	root.add_theme_stylebox_override("panel", background)
-	root.theme = _theme()
+	root.theme_type_variation = &"StudioPanel"
+	root.theme = UI_THEME
 	add_child(root)
 	var layout := VBoxContainer.new()
 	layout.add_theme_constant_override("separation", 12)
@@ -118,11 +115,23 @@ func _build() -> void:
 		_tabs.add_tab(name)
 	_tabs.tab_changed.connect(_change_tab)
 	layout.add_child(_tabs)
-	_content = HBoxContainer.new()
-	_content.add_theme_constant_override("separation", 22)
+	var body_scroll := ScrollContainer.new()
+	_body_scroll = body_scroll
+	body_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body_scroll.follow_focus = true
+	body_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	layout.add_child(body_scroll)
+	var body := VBoxContainer.new()
+	body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	body_scroll.add_child(body)
+	_content = GridContainer.new()
+	_content.columns = 2
+	_content.add_theme_constant_override("h_separation", 22)
+	_content.add_theme_constant_override("v_separation", 16)
 	_content.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	layout.add_child(_content)
+	body.add_child(_content)
 	var scroll := ScrollContainer.new()
+	scroll.follow_focus = true
 	scroll.custom_minimum_size.x = 218
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_content.add_child(scroll)
@@ -138,16 +147,25 @@ func _build() -> void:
 	_description.custom_minimum_size.y = 26
 	_invert = CheckButton.new()
 	_invert.text = "反转"
+	_invert.tooltip_text = "反转当前通道的动作方向。"
 	_invert.toggled.connect(func(value: bool): _set_value("invert", value))
 	right.add_child(_invert)
 	_make_row(right, "smoothing", "平滑时间", 0.0, 0.5, 0.01, " 秒")
+	_rows.smoothing.spin.tooltip_text = "数值越大，抖动越少，延迟越大。单位：秒。"
 	_make_row(right, "sensitivity", "灵敏度", 0.1, 3.0, 0.05)
+	_rows.sensitivity.spin.tooltip_text = "调整当前通道的动作响应幅度。"
 	_make_row(right, "curvature", "曲率", 0.0, 1.0, 0.01)
 	_rows.curvature.spin.tooltip_text = "0 为线性；越大越接近陡峭的 Sigmoid S 形。睁眼、闭眼阈值保持不变。"
 	_make_row(right, "precision", "精度", 0, 200, 1, " 级")
 	_rows.precision.spin.tooltip_text = "0 为连续输出；其他数值为每单位的量化级数。"
-	var range := HBoxContainer.new()
-	range.add_theme_constant_override("separation", 16)
+	for field in ["smoothing", "sensitivity", "curvature", "precision"]:
+		_rows[field].slider.tooltip_text = _rows[field].spin.tooltip_text
+		_rows[field].label.tooltip_text = _rows[field].spin.tooltip_text
+	var range := GridContainer.new()
+	_curve_layout = range
+	range.columns = 2
+	range.add_theme_constant_override("h_separation", 16)
+	range.add_theme_constant_override("v_separation", 12)
 	range.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	right.add_child(range)
 	_curve = ResponseCurve.new()
@@ -169,9 +187,10 @@ func _build() -> void:
 	_options = VBoxContainer.new()
 	_options.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_options.add_theme_constant_override("separation", 16)
-	layout.add_child(_options)
-	_label(_options, "设置会自动保存，下次启动继续使用。", 17, INK)
-	_label(_options, "左右眼可分别校准。睁眼阈值应小于闭眼阈值；两者之间的输入按曲线逐渐闭眼。\n平滑时间越长，抖动越少、延迟也越大；精度设为 0 时连续输出。", 14, MUTED)
+	body.add_child(_options)
+	_label(_options, "设置自动保存", 17, INK)
+	var hint := _label(_options, "悬停参数查看说明。", 14, MUTED)
+	hint.tooltip_text = "左右眼可分别校准。睁眼阈值应小于闭眼阈值。\n平滑时间越长，抖动越少、延迟越大；精度为 0 时连续输出。"
 	_button(_options, "恢复所有默认设置", func(): model.reset_defaults())
 	var footer := HBoxContainer.new()
 	layout.add_child(footer)
@@ -183,25 +202,16 @@ func _build() -> void:
 	_save_timer.wait_time = 0.35
 	_save_timer.timeout.connect(_save)
 	add_child(_save_timer)
+	_body_scroll.resized.connect(_update_layout)
+	_update_layout.call_deferred()
 
 
-func _theme() -> Theme:
-	var theme := Theme.new()
-	var font := SystemFont.new()
-	font.oversampling = 2.0
-	font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC"])
-	theme.default_font = font
-	theme.default_font_size = 15
-	theme.set_color("font_color", "Label", INK)
-	theme.set_color("font_color", "Button", INK)
-	theme.set_color("font_color", "CheckBox", INK)
-	theme.set_color("font_color", "CheckButton", INK)
-	var fill := StyleBoxFlat.new()
-	fill.bg_color = ACCENT
-	fill.set_corner_radius_all(3)
-	theme.set_stylebox("grabber_area", "HSlider", fill)
-	theme.set_stylebox("grabber_area_highlight", "HSlider", fill)
-	return theme
+func _update_layout() -> void:
+	var narrow := _body_scroll.size.x < 700.0
+	_content.columns = 1 if narrow else 2
+	var list_scroll := _list.get_parent() as ScrollContainer
+	list_scroll.custom_minimum_size.y = 200.0 if narrow else 0.0
+	_curve_layout.columns = 1 if _body_scroll.size.x < 460.0 else 2
 
 
 func _make_row(parent: Node, field: String, label: String, low: float, high: float, step: float, suffix: String = "") -> void:
@@ -298,9 +308,9 @@ func _refresh() -> void:
 	var channel: Dictionary = model.channels[selected_channel]
 	var supported := _channel_available(selected_channel)
 	_title.text = SETTINGS.DEFINITIONS[selected_channel].label
-	_description.text = "低于睁眼阈值保持睁开，高于闭眼阈值完全闭合。" if selected_channel in ["left_eye", "right_eye"] else "调整响应范围和跟随方式；金点显示当前输入与输出。"
+	_description.text = "在睁眼与闭眼阈值间过渡。" if selected_channel in ["left_eye", "right_eye"] else "圆点表示当前输入与输出。"
 	if not supported:
-		_description.text = "当前模型没有此通道所需的骨骼或表情。"
+		_description.text = "当前模型不支持此通道。"
 	_invert.set_pressed_no_signal(channel.invert)
 	_invert.disabled = not supported
 	for field: String in _rows:
@@ -345,6 +355,7 @@ func _on_changed(_id: String) -> void:
 func _save() -> void:
 	var result: Error = model.save()
 	_save_status.text = "已保存" if result == OK else "保存失败：" + error_string(result)
+	_save_status.add_theme_color_override("font_color", UI_THEME.get_color("muted" if result == OK else "error", "Studio"))
 	_save_timer.stop()
 
 
@@ -361,11 +372,11 @@ func _reset_selected() -> void:
 	model.changed.emit(selected_channel)
 
 
-func _label(parent: Node, text: String, font_size: int, color: Color) -> Label:
+func _label(parent: Node, text: String, font_size: int, color: String) -> Label:
 	var label := Label.new()
 	label.text = text
 	label.add_theme_font_size_override("font_size", font_size)
-	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_color", UI_THEME.get_color(color, "Studio"))
 	parent.add_child(label)
 	return label
 

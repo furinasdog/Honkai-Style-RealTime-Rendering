@@ -1,16 +1,21 @@
 extends Window
 
 signal capture_options_changed(options: Dictionary)
-signal blender_path_changed(path: String)
+signal calibration_requested
 signal preview_requested(enabled: bool)
+signal tracking_mode_changed(mode: String)
+signal recenter_requested
 
 const SAVE_PATH := "user://app_settings.json"
 const RESOLUTIONS := [Vector2i(640, 480), Vector2i(1280, 720), Vector2i(1920, 1080)]
 const FRAME_RATES := [15, 24, 30, 60]
+const STUDIO_THEME := preload("res://scripts/ui_theme.tres")
 
 var capture_options: Dictionary = {"device": 0, "width": 640, "height": 480, "fps": 30}
-var blender_path: String = ""
 var settings_path: String = SAVE_PATH
+var tracking_mode := "vtuber"
+var _mode: OptionButton
+var _recenter_button: Button
 var _camera: Camera3D
 var _target_viewport: Viewport
 var _defaults: Dictionary = {}
@@ -25,8 +30,6 @@ var _rows: Dictionary = {}
 var _device: SpinBox
 var _resolution: OptionButton
 var _fps: OptionButton
-var _blender_edit: LineEdit
-var _file_dialog: FileDialog
 var _status: Label
 var _save_timer: Timer
 var _preview_toggle: CheckButton
@@ -74,7 +77,7 @@ func _process(_delta: float) -> void:
 
 func save_settings(path: String = "") -> Error:
 	var destination := settings_path if path.is_empty() else path
-	var data := {"version": 1, "rendering": {"msaa_3d": _msaa}, "camera": _read_camera(), "capture": capture_options, "blender_path": blender_path}
+	var data := {"version": 1, "rendering": {"msaa_3d": _msaa}, "camera": _read_camera(), "capture": capture_options, "tracking": {"mode": tracking_mode}}
 	var file := FileAccess.open(destination + ".tmp", FileAccess.WRITE)
 	if file == null:
 		return FileAccess.get_open_error()
@@ -89,7 +92,7 @@ func save_settings(path: String = "") -> Error:
 func load_settings(path: String = "") -> Error:
 	var source := settings_path if path.is_empty() else path
 	capture_options = {"device": 0, "width": 640, "height": 480, "fps": 30}
-	blender_path = ""
+	tracking_mode = "vtuber"
 	_msaa = Viewport.MSAA_4X
 	var camera_options: Dictionary = _defaults.duplicate()
 	var result := OK
@@ -98,6 +101,8 @@ func load_settings(path: String = "") -> Error:
 		if not decoded is Dictionary or decoded.get("version") != 1:
 			result = ERR_PARSE_ERROR
 		else:
+			if decoded.get("tracking") is Dictionary and decoded.tracking.get("mode") in ["vtuber", "full_body"]:
+				tracking_mode = decoded.tracking.mode
 			if decoded.get("rendering") is Dictionary and _number(decoded.rendering.get("msaa_3d")):
 				_msaa = clampi(int(decoded.rendering.msaa_3d), Viewport.MSAA_DISABLED, Viewport.MSAA_8X)
 			if decoded.get("camera") is Dictionary:
@@ -116,8 +121,6 @@ func load_settings(path: String = "") -> Error:
 					capture_options.height = int(options.height)
 				if _number(options.get("fps")) and int(options.fps) in FRAME_RATES:
 					capture_options.fps = int(options.fps)
-			if decoded.get("blender_path") is String:
-				blender_path = decoded.blender_path.strip_edges()
 	else:
 		result = ERR_FILE_NOT_FOUND
 	_apply_rendering()
@@ -125,7 +128,7 @@ func load_settings(path: String = "") -> Error:
 	_last_camera = _read_camera()
 	if _built:
 		_refresh()
-		_status.text = "设置文件损坏，已恢复默认值" if result == ERR_PARSE_ERROR else "画面和相机设置自动保存"
+		_status.text = "设置损坏，已恢复默认" if result == ERR_PARSE_ERROR else "自动保存"
 	return result
 
 
@@ -172,10 +175,11 @@ func _set_camera(field: String, value: float) -> void:
 
 func _refresh() -> void:
 	_refresh_camera()
+	_mode.select(1 if tracking_mode == "full_body" else 0)
+	_recenter_button.visible = tracking_mode == "full_body"
 	_device.set_value_no_signal(float(capture_options.device))
 	_resolution.select(RESOLUTIONS.find(Vector2i(capture_options.width, capture_options.height)))
 	_fps.select(FRAME_RATES.find(int(capture_options.fps)))
-	_blender_edit.text = blender_path
 
 
 func _refresh_camera() -> void:
@@ -199,15 +203,11 @@ func _apply_capture() -> void:
 	_status.text = "已应用摄像头设置"
 
 
-func _apply_blender_path() -> void:
-	var selected := _blender_edit.text.strip_edges()
-	if not selected.is_empty() and not FileAccess.file_exists(selected):
-		_status.text = "找不到 Blender 程序，请重新选择或留空自动查找"
-		return
-	blender_path = selected
+func _set_mode(index: int) -> void:
+	tracking_mode = "full_body" if index == 1 else "vtuber"
+	_recenter_button.visible = tracking_mode == "full_body"
 	save_settings()
-	blender_path_changed.emit(blender_path)
-	_status.text = "Blender 使用自动查找" if blender_path.is_empty() else "已保存 Blender 程序位置"
+	tracking_mode_changed.emit(tracking_mode)
 
 
 func _queue_save() -> void:
@@ -230,21 +230,8 @@ func _build() -> void:
 	visible = false
 	var root := PanelContainer.new()
 	root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	var background := StyleBoxFlat.new()
-	background.bg_color = Color("101c1d")
-	background.content_margin_left = 20
-	background.content_margin_right = 20
-	background.content_margin_top = 16
-	background.content_margin_bottom = 16
-	root.add_theme_stylebox_override("panel", background)
-	var theme := Theme.new()
-	var font := SystemFont.new()
-	font.oversampling = 2.0
-	font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC"])
-	theme.default_font = font
-	theme.default_font_size = 15
-	theme.set_color("font_color", "Label", Color("dfe5df"))
-	root.theme = theme
+	root.theme = STUDIO_THEME
+	root.theme_type_variation = "StudioPanel"
 	add_child(root)
 	var layout := VBoxContainer.new()
 	layout.add_theme_constant_override("separation", 18)
@@ -257,7 +244,7 @@ func _build() -> void:
 	var graphics := _page(tabs, "画面与相机")
 	_aa = _choice(graphics, "抗锯齿", ["关闭", "MSAA 2×", "MSAA 4×", "MSAA 8×"])
 	_aa.item_selected.connect(func(index: int): _msaa = index; _apply_rendering(); _queue_save())
-	_label(graphics, "使用空间抗锯齿，避免运动时的时间累积重影。", true)
+	_aa.tooltip_text = "空间抗锯齿，避免时间累积产生运动重影。"
 	_separator(graphics)
 	_make_row(graphics, "fov", "视野角度", 10.0, 120.0, 1.0, "°")
 	_make_row(graphics, "distance", "取景距离", 0.35, 12.0, 0.05, "m")
@@ -266,8 +253,13 @@ func _build() -> void:
 	_rows.focus_height.spin.allow_lesser = true
 	_projection = _choice(graphics, "投影模式", ["透视", "正交"])
 	_projection.item_selected.connect(func(index: int): _set_camera("projection", float(index)))
-	_label(graphics, "中键旋转 · Shift + 中键平移 · 滚轮缩放\n小键盘 1 / 3 / 7 切换视图，5 切换投影，Home 重新取景。", true)
+	_label(graphics, "中键旋转　Shift + 中键平移　滚轮缩放", true).tooltip_text = "小键盘 1 / 3 / 7 切换视图，5 切换投影，Home 重新取景。"
 	var capture := _page(tabs, "动捕摄像头")
+	_mode = _choice(capture, "动捕模式", ["VTuber · 上半身", "全身动捕"])
+	_mode.tooltip_text = "VTuber 保持下肢站姿。全身模式需双髋、膝盖及脚入镜，位置为单目估算。"
+	_mode.item_selected.connect(_set_mode)
+	_recenter_button = _button(capture, "重置站姿", func(): recenter_requested.emit())
+	_recenter_button.tooltip_text = "全身站直后重新建立站姿与接地基准。"
 	var device_row := _row(capture, "设备编号")
 	_device = SpinBox.new()
 	_device.min_value = 0
@@ -276,35 +268,19 @@ func _build() -> void:
 	device_row.add_child(_device)
 	_resolution = _choice(capture, "目标分辨率", ["640 × 480", "1280 × 720", "1920 × 1080"])
 	_fps = _choice(capture, "目标帧率", ["15 FPS", "24 FPS", "30 FPS", "60 FPS"])
-	_label(capture, "0 通常是默认摄像头。实际分辨率和帧率取决于设备。\n点击应用后更新采集；更改选项不会反复重启摄像头。", true)
+	_device.tooltip_text = "0 通常为默认摄像头。修改设备、分辨率或帧率后点击应用。"
 	_button(capture, "应用摄像头设置", _apply_capture)
+	_button(capture, "相机方位校正…", func(): calibration_requested.emit())
 	_preview_toggle = CheckButton.new()
-	_preview_toggle.text = "显示摄像头与关键点预览"
+	_preview_toggle.text = "摄像头预览"
 	_preview_toggle.tooltip_text = "与动捕共用摄像头；关闭预览不停止动捕，不会录制画面。"
 	_preview_toggle.toggled.connect(func(enabled: bool): preview_requested.emit(enabled))
 	capture.add_child(_preview_toggle)
-	var environment := _page(tabs, "环境")
-	_label(environment, "可选 Blender 兼容转换器")
-	_blender_edit = LineEdit.new()
-	_blender_edit.placeholder_text = "留空自动查找，优先使用随包附带的 Blender"
-	environment.add_child(_blender_edit)
-	var path_actions := HBoxContainer.new()
-	environment.add_child(path_actions)
-	_button(path_actions, "选择程序…", func(): _file_dialog.popup_centered_ratio(0.75))
-	_button(path_actions, "应用工具路径", _apply_blender_path)
-	_label(environment, "常规 PMX 导入由 C++ 直接完成，不使用此工具。\n兼容转换还需要 runtime/mmd_tools 与受控 bpy worker。", true)
 	var footer := HBoxContainer.new()
 	layout.add_child(footer)
-	_status = _label(footer, "画面和相机设置自动保存", true)
+	_status = _label(footer, "自动保存", true)
 	_status.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_button(footer, "关闭", _close)
-	_file_dialog = FileDialog.new()
-	_file_dialog.title = "选择 Blender 程序"
-	_file_dialog.access = FileDialog.ACCESS_FILESYSTEM
-	_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	_file_dialog.filters = PackedStringArray(["*.exe;可执行程序", "*;所有文件"])
-	_file_dialog.file_selected.connect(func(path: String): _blender_edit.text = path)
-	add_child(_file_dialog)
 	_save_timer = Timer.new()
 	_save_timer.one_shot = true
 	_save_timer.wait_time = 0.4
@@ -318,9 +294,13 @@ func _page(tabs: TabContainer, heading: String) -> VBoxContainer:
 	for side: String in ["left", "right", "top", "bottom"]:
 		margin.add_theme_constant_override("margin_" + side, 14)
 	tabs.add_child(margin)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	margin.add_child(scroll)
 	var content := VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	content.add_theme_constant_override("separation", 14)
-	margin.add_child(content)
+	scroll.add_child(content)
 	return content
 
 
@@ -367,7 +347,7 @@ func _label(parent: Node, text: String, muted := false) -> Label:
 	var label := Label.new()
 	label.text = text
 	if muted:
-		label.add_theme_color_override("font_color", Color("95a7a5"))
+		label.add_theme_color_override("font_color", STUDIO_THEME.get_color("muted", "Studio"))
 		label.add_theme_font_size_override("font_size", 13)
 	parent.add_child(label)
 	return label
@@ -390,8 +370,8 @@ static func _number(value: Variant) -> bool:
 
 
 func popup_section(index: int) -> void:
-	_tabs.current_tab = clampi(index, 0, 2)
-	title = ["相机与抗锯齿", "捕捉设置", "模型转换器"][_tabs.current_tab]
+	_tabs.current_tab = clampi(index, 0, 1)
+	title = ["相机与抗锯齿", "捕捉设置"][_tabs.current_tab]
 	popup_centered(Vector2i(750, 530))
 
 

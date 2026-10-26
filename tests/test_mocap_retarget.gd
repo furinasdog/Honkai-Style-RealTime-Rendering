@@ -11,6 +11,8 @@ func _initialize() -> void:
 func _run() -> void:
 	create_timer(15.0).timeout.connect(func(): quit(1))
 	assert(_test_near_neutral_rotations())
+	assert(_test_elbow_plane())
+	assert(_test_pmx_finger_axes())
 	var model := _synthetic_model()
 	root.add_child(model)
 	for animator in model.find_children("*", "AnimationPlayer", true, false):
@@ -123,7 +125,7 @@ func _run() -> void:
 	assert(absf(rolled_finger.get_rotation_quaternion().dot((roll * neutral_finger).get_rotation_quaternion())) > 0.999, "Palm roll must carry finger twist instead of canceling it")
 	_test_settings(setup, skeleton, mesh)
 	_test_partial_models()
-	print("MOCAP_RETARGET_PASS torso-carried arm twist, parent spaces, hand curl/roll, settings thresholds/inversion/quantization/gating, optional bones/morphs, sender restart and fixed lower body")
+	print("MOCAP_RETARGET_PASS elbow-plane twist, PMX finger axes/authored tails, palm rotation, torso-carried arm twist, parent spaces, settings, optional bones/morphs, sender restart and fixed lower body")
 	quit(0)
 
 
@@ -236,7 +238,8 @@ func _hand(skeleton: Skeleton3D, side: String) -> Dictionary:
 			points.append(_mp3(_position(skeleton, side + part)))
 		var bone := skeleton.find_bone(side + finger[2])
 		var pose := skeleton.get_bone_global_pose(bone)
-		points.append(_mp3(pose.origin + pose.basis.y.normalized() * 0.018))
+		var previous := _position(skeleton, side + finger[1])
+		points.append(_mp3(pose.origin + (pose.origin - previous).normalized() * 0.018))
 	return {"side": "Left", "world": points, "image": _image_points(points)}
 
 
@@ -293,7 +296,94 @@ func _shape(mesh: MeshInstance3D, shape_name: String) -> int:
 	return -1
 
 
-static func _synthetic_model() -> Node3D:
+func _test_elbow_plane() -> bool:
+	var model := _synthetic_model()
+	root.add_child(model)
+	var rig := model.get_child(0) as Skeleton3D
+	rig.reset_bone_poses()
+	var setup = RETARGET.new()
+	assert(setup.apply(rig, model))
+	var packet := _packet(rig)
+	var elbow := _position(rig, "左ひじ")
+	packet.pose.world[15] = _mp(elbow + Vector3.BACK * 0.22)
+	_settle(setup, packet)
+	var bone := rig.find_bone("左腕")
+	var initial := rig.get_bone_global_pose(bone).basis.orthonormalized()
+	var roll := Basis(Vector3.RIGHT, 0.8)
+	packet.pose.world[15] = _mp(elbow + roll * Vector3.BACK * 0.22)
+	_settle(setup, packet)
+	var actual := rig.get_bone_global_pose(bone).basis.orthonormalized()
+	assert(absf(actual.get_rotation_quaternion().dot((roll * initial).get_rotation_quaternion())) > 0.999, "Elbow bend plane must drive upper-arm axial rotation even when the shoulder-elbow direction stays fixed")
+	assert((_position(rig, "左手首") - _position(rig, "左ひじ")).normalized().dot(roll * Vector3.BACK) > 0.995)
+	# Straight arms provide no reliable bend plane; a noisy wrist must keep torso-carried twist.
+	setup.reset()
+	packet = _packet(rig)
+	packet.pose.world[15] = _mp(elbow + Vector3(0.22, 0.00001, -0.00001))
+	_settle(setup, packet)
+	assert(absf(rig.get_bone_pose_rotation(bone).dot(setup._neutral_local[bone])) > 0.999)
+	model.free()
+	return true
+
+
+func _test_pmx_finger_axes() -> bool:
+	var model := _synthetic_model(false)
+	root.add_child(model)
+	var rig := model.get_child(0) as Skeleton3D
+	rig.reset_bone_poses()
+	var setup = RETARGET.new()
+	assert(setup.apply(rig, model))
+	for side in ["左", "右"]:
+		setup.reset()
+		var hand := _hand(rig, side)
+		hand.side = "Left" if side == "左" else "Right"
+		var packet := {"version": 1, "seq": 0, "timestamp_ms": 0, "pose": null, "hands": [hand], "face": null}
+		_settle(setup, packet)
+		for finger in RETARGET.FINGERS:
+			for part: String in finger:
+				var bone := rig.find_bone(side + part)
+				assert(absf(rig.get_bone_pose_rotation(bone).dot(setup._neutral_local[bone])) > 0.999, "Open fingers on a PMX rig must not depend on local +Y bone axes")
+		setup.reset()
+		var palm_origin := _point(hand.world[0])
+		var roll := Basis(Vector3(0.4, 0.3, 0.8).normalized(), 0.9)
+		for index in hand.world.size():
+			hand.world[index] = _mp3(palm_origin + roll * (_point(hand.world[index]) - palm_origin))
+		_settle(setup, packet)
+		for finger in RETARGET.FINGERS:
+			for part: String in finger:
+				var bone := rig.find_bone(side + part)
+				var expected: Basis = roll * setup._neutral_global[bone].basis
+				var actual := rig.get_bone_global_pose(bone).basis.orthonormalized()
+				assert(absf(actual.get_rotation_quaternion().dot(expected.get_rotation_quaternion())) > 0.999, "Palm rotation must carry every PMX finger segment, including terminal bones")
+		var wrist := rig.find_bone(side + "手首")
+		var expected_wrist: Basis = roll * setup._neutral_global[wrist].basis
+		assert(absf(rig.get_bone_global_pose(wrist).basis.get_rotation_quaternion().dot(expected_wrist.get_rotation_quaternion())) > 0.999, "Both PMX wrists must follow the full palm orientation")
+	# Authored tails can differ from the previous segment and must take precedence.
+	setup.reset()
+	var offsets := PackedVector3Array()
+	offsets.resize(rig.get_bone_count())
+	var terminal := rig.find_bone("左人指３")
+	offsets[terminal] = Vector3(0.02, 0.008, 0.006)
+	rig.set_meta("pmx_tail_offsets", offsets)
+	var hand := _hand(rig, "左")
+	var tip := _position(rig, "左人指３") + offsets[terminal]
+	hand.world[8] = _mp3(tip)
+	var packet := {"version": 1, "seq": 0, "timestamp_ms": 0, "pose": null, "hands": [hand], "face": null}
+	_settle(setup, packet)
+	assert(absf(rig.get_bone_pose_rotation(terminal).dot(setup._neutral_local[terminal])) > 0.999, "PMX authored tail offsets must override parent-segment approximations")
+	# The model's neutral arm pose rotates model-space PMX offsets along with the hand.
+	setup.reset()
+	rig.set_bone_pose_rotation(rig.find_bone("左腕"), Quaternion(Vector3.FORWARD, 0.7))
+	assert(setup.apply(rig, model))
+	hand = _hand(rig, "左")
+	hand.world[8] = _mp3(_position(rig, "左人指３") + rig.get_bone_global_pose(terminal).basis * offsets[terminal])
+	packet.hands = [hand]
+	_settle(setup, packet)
+	assert(absf(rig.get_bone_pose_rotation(terminal).dot(setup._neutral_local[terminal])) > 0.999, "Tail offsets must follow the captured model neutral pose")
+	model.free()
+	return true
+
+
+static func _synthetic_model(align_bone_axes: bool = true) -> Node3D:
 	var model := Node3D.new()
 	var rig := Skeleton3D.new()
 	model.add_child(rig)
@@ -316,7 +406,7 @@ static func _synthetic_model() -> Node3D:
 	add_bone.call("頭", "首", Vector3(0, 1.58, 0))
 	for side in ["左", "右"]:
 		var sign := 1.0 if side == "左" else -1.0
-		var orientation := Basis(Quaternion(Vector3.UP, Vector3(sign, 0, 0)))
+		var orientation := Basis(Quaternion(Vector3.UP, Vector3(sign, 0, 0))) if align_bone_axes else Basis.IDENTITY
 		add_bone.call(side + "肩", "上半身2", Vector3(sign * 0.12, 1.42, 0))
 		add_bone.call(side + "腕", side + "肩", Vector3(sign * 0.2, 1.42, 0), orientation)
 		add_bone.call(side + "ひじ", side + "腕", Vector3(sign * 0.44, 1.42, 0), orientation)

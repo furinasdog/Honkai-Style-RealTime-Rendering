@@ -1,4 +1,5 @@
 extends PanelContainer
+const UI_THEME = preload("res://scripts/ui_theme.tres")
 
 var body: VBoxContainer
 var collapsed := false
@@ -23,6 +24,8 @@ func _build() -> void:
 	if _built:
 		return
 	_built = true
+	theme = UI_THEME
+	theme_type_variation = &"StudioPanel"
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	var layout := VBoxContainer.new()
 	layout.add_theme_constant_override("separation", 10)

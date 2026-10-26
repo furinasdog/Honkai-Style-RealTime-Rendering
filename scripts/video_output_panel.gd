@@ -3,6 +3,7 @@ extends Window
 const RESOLUTIONS := [Vector2i(1280, 720), Vector2i(1920, 1080), Vector2i(2560, 1440), Vector2i(3840, 2160)]
 const RATES := [30, 60]
 const SAVE_PATH := "user://video_output.cfg"
+const UI_THEME = preload("res://scripts/ui_theme.tres")
 
 var _scene: Node3D
 var _viewport: SubViewport
@@ -41,31 +42,35 @@ func setup(scene: Node3D) -> void:
 	_camera.make_current()
 	_bridge = preload("res://scripts/spout_output.gd").new()
 	add_child(_bridge)
-	_bridge.failed.connect(func(message: String): _status.text = "输出失败：" + message)
+	_bridge.failed.connect(func(message: String):
+		_status.text = "输出失败：" + message
+		_status.add_theme_color_override("font_color", UI_THEME.get_color("error", "Studio")))
 	var panel := PanelContainer.new()
 	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	panel.add_theme_stylebox_override("panel", scene._panel_style())
-	var theme := Theme.new()
-	var font := SystemFont.new()
-	font.font_names = PackedStringArray(["Microsoft YaHei UI", "Microsoft YaHei", "Noto Sans CJK SC"])
-	font.oversampling = 2.0
-	theme.default_font = font
-	theme.default_font_size = 16
-	panel.theme = theme
+	panel.theme_type_variation = &"StudioPanel"
+	panel.theme = UI_THEME
 	add_child(panel)
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	scroll.follow_focus = true
+	panel.add_child(scroll)
 	var box := VBoxContainer.new()
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	box.add_theme_constant_override("separation", 16)
-	panel.add_child(box)
-	_label(box, "独立渲染角色画面，保留 Alpha，不包含操作界面。")
+	scroll.add_child(box)
+	_label(box, "透明角色画面，不包含界面")
 	_resolution = _choice(box, "输出分辨率", ["请选择分辨率", "720p · 1280 × 720", "1080p · 1920 × 1080", "1440p / 2K · 2560 × 1440", "4K · 3840 × 2160"])
 	_resolution.set_item_disabled(0, true)
 	_rate = _choice(box, "输出帧率", ["请选择帧率", "30 FPS", "60 FPS"])
 	_rate.set_item_disabled(0, true)
-	_label(box, "OBS 需安装 Spout2 插件，添加 Spout2 Capture 源，\n选择 BengRender，Alpha 模式使用“预乘”。")
+	var hint := _label(box, "OBS：Spout2 Capture → BengRender\nAlpha：预乘")
+	hint.tooltip_text = "OBS 需安装 Spout2 插件。添加 Spout2 Capture 来源，选择 BengRender。"
+	hint.add_theme_color_override("font_color", UI_THEME.get_color("muted", "Studio"))
 	var actions := HBoxContainer.new()
 	box.add_child(actions)
 	_start = Button.new()
-	_start.text = "启动 / 应用输出"
+	_start.theme_type_variation = &"PrimaryButton"
+	_start.text = "启动输出"
 	_start.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_start.pressed.connect(start_output)
 	actions.add_child(_start)
@@ -73,7 +78,7 @@ func setup(scene: Node3D) -> void:
 	_stop.text = "停止输出"
 	_stop.pressed.connect(stop_output)
 	actions.add_child(_stop)
-	_status = _label(box, "未启动。请选择输出分辨率与帧率。")
+	_status = _label(box, "输出未启动")
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_load_settings()
 
@@ -92,8 +97,9 @@ func _process(_delta: float) -> void:
 	_viewport.use_taa = false
 	_stop.disabled = not _bridge.enabled
 	_start.disabled = _resolution.selected < 1 or _rate.selected < 1
+	_start.text = "应用设置" if _bridge.enabled else "启动输出"
 	if _bridge.enabled:
-		_status.text = "BengRender · %d × %d · 目标 %d FPS\n已发送 %d 帧 · RGBA / 预乘 Alpha" % [_viewport.size.x, _viewport.size.y, _active_fps, _bridge.get_frames()]
+		_status.text = "%d × %d · %d FPS · 已发送 %d 帧" % [_viewport.size.x, _viewport.size.y, _active_fps, _bridge.get_frames()]
 
 
 func start_output() -> void:
@@ -106,6 +112,7 @@ func start_output() -> void:
 	var result: Error = _bridge.start(_viewport, RATES[_rate.selected - 1])
 	if result != OK:
 		_status.text = "Spout 输出无法启动：" + error_string(result)
+		_status.add_theme_color_override("font_color", UI_THEME.get_color("error", "Studio"))
 		_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 		return
 	var settings := ConfigFile.new()
@@ -120,7 +127,8 @@ func stop_output() -> void:
 	if _viewport != null:
 		_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	if _status != null:
-		_status.text = "输出已停止。"
+		_status.text = "输出已停止"
+		_status.add_theme_color_override("font_color", UI_THEME.get_color("muted", "Studio"))
 
 
 func _exit_tree() -> void:
@@ -140,11 +148,13 @@ func _load_settings() -> void:
 
 
 func _choice(parent: Node, label: String, values: Array) -> OptionButton:
-	var row := HBoxContainer.new()
+	var row := VBoxContainer.new()
 	parent.add_child(row)
-	_label(row, label).custom_minimum_size.x = 120
+	_label(row, label)
 	var control := OptionButton.new()
 	control.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	control.fit_to_longest_item = false
+	control.clip_text = true
 	for value: String in values:
 		control.add_item(value)
 	row.add_child(control)
@@ -154,5 +164,6 @@ func _choice(parent: Node, label: String, values: Array) -> OptionButton:
 func _label(parent: Node, text: String) -> Label:
 	var label := Label.new()
 	label.text = text
+	label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	parent.add_child(label)
 	return label

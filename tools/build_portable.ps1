@@ -2,9 +2,6 @@
 [CmdletBinding()]
 param(
     [string]$GodotExecutable,
-    [string]$BlenderExecutable,
-    [string]$MmdToolsPath,
-    [switch]$IncludeBlenderCompatibility,
     [switch]$RuntimeOnly,
     [switch]$ExportOnly,
     [switch]$StageOnly
@@ -45,8 +42,8 @@ function Copy-FilteredTree([string]$Source, [string]$Destination) {
 }
 
 function Move-LegacyRuntime {
-    $legacy = @('runtime/capture', 'runtime/model_import', 'runtime/importer/model_import.py', 'licenses/godot-cpp_LICENSE.md')
-    $backup = Join-Path $script:BuildRoot ('retired_python_runtime_' + (Get-Date -Format 'yyyyMMdd_HHmmss_fff'))
+    $legacy = @('runtime/blender', 'runtime/mmd_tools', 'runtime/importer', 'runtime/capture', 'runtime/model_import', 'licenses/godot-cpp_LICENSE.md')
+    $backup = Assert-WorkspacePath (Join-Path $script:BuildRoot ('retired_conversion_runtime_' + (Get-Date -Format 'yyyyMMdd_HHmmss_fff')))
     foreach ($relative in $legacy) {
         $target = Join-Path $script:DistributionRoot $relative
         if (Test-Path -LiteralPath $target) {
@@ -56,27 +53,6 @@ function Move-LegacyRuntime {
             Move-Item -LiteralPath $target -Destination (Join-Path $backup $name)
         }
     }
-}
-
-function Copy-ConversionRuntime {
-    $bundledBlender = Join-Path $script:DistributionRoot 'runtime/blender/blender.exe'
-    $bundledAddon = Join-Path $script:DistributionRoot 'runtime/mmd_tools'
-    if ($BlenderExecutable) {
-        if (-not (Test-Path -LiteralPath $BlenderExecutable -PathType Leaf)) { throw 'BlenderExecutable does not exist' }
-        Copy-FilteredTree ([IO.Path]::GetDirectoryName((Resolve-Path -LiteralPath $BlenderExecutable).Path)) ([IO.Path]::GetDirectoryName($bundledBlender))
-    }
-    if ($MmdToolsPath) {
-        if (-not (Test-Path -LiteralPath (Join-Path $MmdToolsPath '__init__.py') -PathType Leaf)) { throw 'MmdToolsPath must contain __init__.py' }
-        Copy-FilteredTree $MmdToolsPath $bundledAddon
-    }
-    if (-not (Test-Path -LiteralPath $bundledBlender -PathType Leaf) -or
-        -not (Test-Path -LiteralPath (Join-Path $bundledAddon '__init__.py') -PathType Leaf)) {
-        throw 'Supply BlenderExecutable and MmdToolsPath, or prepare the complete bundled conversion runtime first'
-    }
-    $worker = Join-Path $script:DistributionRoot 'runtime/importer'
-    [void][IO.Directory]::CreateDirectory($worker)
-    Copy-Item -LiteralPath (Join-Path $script:ProjectRoot 'tools/import_pmx_blender.py') -Destination (Join-Path $worker 'import_pmx_blender.py') -Force
-    Move-LegacyRuntime
 }
 
 function Assert-NoCharacterAssets([string]$Path) {
@@ -91,8 +67,8 @@ function Assert-NoCharacterAssets([string]$Path) {
             throw "Remove the built-in character dependency before export: $relative"
         }
         if ($file.Extension -in @('.gd', '.tscn', '.tres') -and
-            (Get-Content -LiteralPath $file.FullName -Raw) -match '\.venv[\\/]|mocap/bridge\.py|mocap/model_import\.py|MocapCapture\.exe|ModelImporter\.exe') {
-            throw "Remove the legacy Python helper dependency before export: $relative"
+            (Get-Content -LiteralPath $file.FullName -Raw) -match '\.venv[\\/]|mocap/bridge\.py|mocap/model_import\.py|MocapCapture\.exe|ModelImporter\.exe|runtime/(blender|mmd_tools|importer)/|import_pmx_blender\.py|scripts/runtime_paths\.gd') {
+            throw "Remove the retired conversion/helper dependency before export: $relative"
         }
     }
 }
@@ -101,12 +77,11 @@ function Assert-NativePackage([string]$Path) {
     $base = [IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
     foreach ($file in Get-ChildItem -LiteralPath $base -Recurse -File -Force) {
         $relative = $file.FullName.Substring($base.Length + 1).Replace('\', '/')
-        if ($relative -match '^runtime/(blender|mmd_tools)/') { continue }
         if ($file.Extension.ToLowerInvariant() -in @('.pmx', '.pmd', '.vmd', '.vpd', '.blend', '.fbx', '.glb', '.gltf') -or
             $relative -match '(^|/)(\.venv|outputs|model_cache|backups|__pycache__|tests)(/|$)' -or
-            $relative -match '^runtime/(capture|model_import)/' -or
-            $file.Name -match '^(python.*\.(exe|dll)|MocapCapture\.exe|ModelImporter\.exe)$' -or
-            ($file.Extension -eq '.py' -and $relative -ne 'runtime/importer/import_pmx_blender.py')) {
+            $relative -match '^runtime/(blender|mmd_tools|importer|capture|model_import)/' -or
+            $file.Name -match '^(python.*\.(exe|dll)|blender.*\.exe|MocapCapture\.exe|ModelImporter\.exe)$' -or
+            $file.Extension -eq '.py') {
             throw "Forbidden content in the native distribution: $relative"
         }
     }
@@ -269,24 +244,22 @@ function Copy-Notices {
     $notice = @'
 # Third-party software
 
-Motion capture, PMX reading and archive handling use native C++ with Godot, MediaPipe and 7-Zip DLLs. The MMD parser is a modified MIT fork of V-Sekai/godot-pmx, including the MIT Kaitai runtime. Spout2 provides native GPU texture output under its BSD 2-Clause license. No Python runtime is required. Optional Blender compatibility components use only Blender's embedded bpy interpreter when explicitly selected.
+Motion capture, PMX reading and archive handling use native C++ with Godot, MediaPipe and 7-Zip DLLs. The MMD parser is a modified MIT fork of V-Sekai/godot-pmx, including the MIT Kaitai runtime. Spout2 provides native GPU texture output under its BSD 2-Clause license. No Python or Blender runtime is required or included.
 
-Complete available license/NOTICE texts and pinned version manifests are in licenses/. Blender and mmd_tools keep their original license files under runtime/blender/ and runtime/mmd_tools/.
+Complete available license/NOTICE texts and pinned version manifests are in licenses/.
 
 - Godot source: https://github.com/godotengine/godot
 - MediaPipe source: https://github.com/google-ai-edge/mediapipe
 - 7-Zip 26.05 source: https://github.com/ip7z/7zip/releases/download/26.05/7z2605-src.tar.xz
 - 7-Zip license: https://www.7-zip.org/license.txt
 - Spout2 source: https://github.com/leadedge/Spout2
-- Blender source: https://projects.blender.org/blender/blender
-- mmd_tools source: https://github.com/MMD-Blender/blender_mmd_tools
 
 7-Zip contains LGPL, BSD and unRAR-restricted components. The application exposes ZIP/7z import only; it does not expose RAR, encrypted or split-archive import.
 
 No MMD character model or character texture is included. Users must obtain models and follow their authors' terms. The project's own code uses the MIT license; third-party licenses remain separate.
 '@
     Write-Utf8File (Join-Path $script:DistributionRoot 'THIRD_PARTY_NOTICES.md') $notice
-    Write-Utf8File (Join-Path $script:DistributionRoot '使用说明.txt') "运行 HonkaiRender.exe，整个文件夹一起分发。`n应用不附角色模型，请导入自己的 ZIP/7z 并选择 PMX。`n模型直接由 C++ 加载；常规使用不需要 Blender 或 Python。正常运行无需联网。`n个人设置、缓存和日志保存在当前 Windows 用户的数据目录。`n画面 → OBS 视频输出中选择分辨率、帧率并启动；OBS安装Spout2插件后添加BengRender源，Alpha使用预乘。`n"
+    Write-Utf8File (Join-Path $script:DistributionRoot '使用说明.txt') "运行 HonkaiRender.exe，整个文件夹一起分发。`n应用不附角色模型，请导入自己的 ZIP/7z 并选择 PMX。`nPMX 由 C++ 原生加载，无需 Blender 或 Python。正常运行无需联网。`n个人设置、缓存和日志保存在当前 Windows 用户的数据目录。`n画面 → OBS 视频输出中选择分辨率、帧率并启动；OBS安装Spout2插件后添加BengRender源，Alpha使用预乘。`n"
 }
 
 function New-DistributionArchive {
@@ -343,7 +316,7 @@ if ($StageOnly) {
     [ordered]@{ stage = $stage; exported = $false } | ConvertTo-Json
     exit 0
 }
-if ($IncludeBlenderCompatibility) { Copy-ConversionRuntime }
+Move-LegacyRuntime
 Copy-Notices
 if ($RuntimeOnly) {
     [ordered]@{ portable_directory = $script:DistributionRoot; exported = $false } | ConvertTo-Json

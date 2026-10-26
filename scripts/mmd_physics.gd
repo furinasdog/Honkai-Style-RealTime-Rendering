@@ -10,7 +10,6 @@ class HybridBody extends RigidBody3D:
 		# PMX mode 2 preserves the animated bone position while physics rotates its offset collider.
 		target.origin = animated_bone_origin - target.basis * body_to_bone.origin
 		state.transform = target
-		state.linear_velocity = Vector3.ZERO
 
 
 const MAX_BODIES := 2048
@@ -63,10 +62,32 @@ func apply(rig: Skeleton3D, model_root: Node3D, data: Dictionary) -> bool:
 	model_root.add_child(_world_root)
 	rig.modifier_callback_mode_process = Skeleton3D.MODIFIER_CALLBACK_MODE_PROCESS_IDLE
 	var written_bones := {}
+	var free_chained := {}
+	# Jointed children already follow their dynamic parent; pinning mode 2 again overconstrains that chain.
+	for source: Dictionary in data.joints:
+		var a := int(source.body_a)
+		var b := int(source.body_b)
+		if a < 0 or b < 0 or a >= data.rigid_bodies.size() or b >= data.rigid_bodies.size():
+			continue
+		for pair in [Vector2i(a, b), Vector2i(b, a)]:
+			var parent: Dictionary = data.rigid_bodies[pair.x]
+			var child: Dictionary = data.rigid_bodies[pair.y]
+			if int(parent.type) == 0 or int(child.type) != 2:
+				continue
+			var parent_bone := rig.find_bone(str(parent.get("bone", "")))
+			var child_bone := rig.find_bone(str(child.get("bone", "")))
+			if parent_bone < 0 or child_bone < 0 or rig.get_bone_parent(child_bone) != parent_bone:
+				continue
+			var parent_name := rig.get_bone_name(parent_bone)
+			var child_name := rig.get_bone_name(child_bone)
+			if _protected_bone(parent_name) or _protected_bone(child_name) or _torso_name(parent_name) or _torso_name(child_name):
+				continue
+			free_chained[pair.y] = true
+	counts["normalized_mode2_children"] = free_chained.size()
 	for index in data.rigid_bodies.size():
 		var source: Dictionary = data.rigid_bodies[index]
 		var bone := rig.find_bone(str(source.get("bone", "")))
-		var mode := int(source.type)
+		var mode := 1 if free_chained.has(index) else int(source.type)
 		if bone >= 0 and _protected_bone(rig.get_bone_name(bone)):
 			mode = 0
 		var body: PhysicsBody3D
@@ -113,7 +134,7 @@ func apply(rig: Skeleton3D, model_root: Node3D, data: Dictionary) -> bool:
 		bodies.append(body)
 		if mode != 0 and bone >= 0 and not written_bones.has(bone):
 			written_bones[bone] = true
-			_dynamic_bones[bone] = true
+			_dynamic_bones[bone] = entry
 			_dynamic.append(entry)
 	_dynamic.sort_custom(func(a: Dictionary, b: Dictionary): return _depth(a.bone) < _depth(b.bone))
 	for source: Dictionary in data.joints:
@@ -263,11 +284,12 @@ func _physics_process(_delta: float) -> void:
 	if _reset_requested:
 		reset()
 	var animated: Dictionary = {}
+	var physical: Dictionary = {}
 	for entry in _entries:
 		if entry.mode == 0:
 			entry.body.global_transform = _animated_target(entry, animated)
 		elif entry.body is HybridBody:
-			entry.body.animated_bone_origin = (_rig.global_transform * _animated_pose(entry.bone, animated)).origin
+			entry.body.animated_bone_origin = (_rig.global_transform * _physical_pose(entry.bone, physical)).origin
 
 
 func _move_with_model() -> void:
@@ -366,6 +388,23 @@ func _animated_pose(index: int, cache: Dictionary) -> Transform3D:
 	var local: Transform3D = _base_local[index] if _dynamic_bones.has(index) else _rig.get_bone_pose(index)
 	var parent := _rig.get_bone_parent(index)
 	var result: Transform3D = _animated_pose(parent, cache) * local if parent >= 0 else local
+	cache[index] = result
+	return result
+
+
+func _physical_pose(index: int, cache: Dictionary) -> Transform3D:
+	if cache.has(index):
+		return cache[index]
+	var local: Transform3D = _base_local[index] if _dynamic_bones.has(index) else _rig.get_bone_pose(index)
+	var parent := _rig.get_bone_parent(index)
+	var result: Transform3D = _physical_pose(parent, cache) * local if parent >= 0 else local
+	if _dynamic_bones.has(index):
+		var entry: Dictionary = _dynamic_bones[index]
+		var simulated: Transform3D = _rig.global_transform.affine_inverse() * entry.body.global_transform * entry.offset.affine_inverse()
+		result.basis = simulated.basis
+		if entry.mode == 1:
+			result.origin = simulated.origin
+	# Mode 2 follows the physically rotated parent chain, not the undeformed animation chain.
 	cache[index] = result
 	return result
 
