@@ -111,7 +111,10 @@ func map_value(id: String, raw: float, delta: float, state_key: String = "") -> 
 	return float(_filtered[key])
 
 
-func reset_filters(id: String = "") -> void:
+func reset_filters(id: String = "", state_key: String = "") -> void:
+	if not state_key.is_empty():
+		_filtered.erase(id + ":" + state_key)
+		return
 	if id.is_empty():
 		_filtered.clear()
 		input_values.clear()

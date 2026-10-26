@@ -91,8 +91,58 @@ func _run() -> void:
 			var base := Color.WHITE if row == 0 else DIFFUSE
 			_assert_color(lit.get_pixelv(pixel), base, "Lit %s row %d" % [KINDS[column], row])
 			_assert_color(shadow.get_pixelv(pixel), base * SHADOWS[column], "Shadow %s row %d" % [KINDS[column], row])
+	_setup.set_shadows_enabled(false)
+	var fill_light := OmniLight3D.new()
+	fill_light.position.z = 2.0
+	fill_light.omni_range = 10.0
+	fill_light.light_color = Color.RED
+	fill_light.light_energy = 5.0
+	root.add_child(fill_light)
+	for degrees in [0, 90, 180]:
+		_light.rotation.y = deg_to_rad(degrees)
+		_light.light_color = Color(0.25, 0.5, 1.0)
+		_light.light_energy = 2.0 + float(degrees) / 90.0
+		var full_bright := await _image()
+		for row in 2:
+			for column in 4:
+				_assert_color(full_bright.get_pixel(64 + column * 128, 109 + row * 166), Color.WHITE if row == 0 else DIFFUSE, "Shadows disabled %s at %d" % [KINDS[column], degrees])
+		_save(full_bright, "disabled_%d" % degrees)
+	fill_light.free()
+	_light.visible = false
+	var no_light := await _image()
+	_assert_color(no_light.get_pixel(64, 275), DIFFUSE, "Disabled shadows must preserve source color without a light")
+	_light.visible = true
+	_light.light_color = Color.WHITE
+	_light.light_energy = 1.0
 	for patch in _patches:
 		patch.free()
+	var imported := Node3D.new()
+	root.add_child(imported)
+	var fresh := _patch(Vector3.ZERO, Vector3.BACK, "cloth", DIFFUSE)
+	fresh.reparent(imported)
+	var source := StandardMaterial3D.new()
+	source.resource_name = "Imported"
+	var texture_image := Image.create(2, 1, false, Image.FORMAT_RGBA8)
+	var texture_color := Color(0.8, 0.6, 0.4)
+	texture_image.set_pixel(0, 0, texture_color)
+	texture_image.set_pixel(1, 0, Color(0.8, 0.6, 0.4, 0.0))
+	source.albedo_texture = ImageTexture.create_from_image(texture_image)
+	var arrays := fresh.mesh.surface_get_arrays(0)
+	arrays[Mesh.ARRAY_TEX_UV] = PackedVector2Array([Vector2.ZERO, Vector2.RIGHT, Vector2.DOWN, Vector2.ONE])
+	var imported_mesh := ArrayMesh.new()
+	imported_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	imported_mesh.surface_set_material(0, source)
+	fresh.mesh = imported_mesh
+	fresh.material_override = null
+	_setup.apply(imported, {"materials": [{"name": "Imported", "source_name": "cloth", "base_color": [DIFFUSE.r, DIFFUSE.g, DIFFUSE.b, 1.0], "edge_enabled": false}]})
+	assert(_setup.materials.size() == 1 and not _setup.materials[0].get_shader_parameter("shadows_enabled"), "A newly applied model must inherit the disabled shadow setting")
+	root.transparent_bg = true
+	var reloaded := await _image()
+	_assert_color(reloaded.get_pixel(234, 192), texture_color.srgb_to_linear() * DIFFUSE, "New material keeps texture UV and original diffuse in backlight")
+	assert(reloaded.get_pixel(278, 192).a < 0.01, "Disabling shadows must retain texture alpha cutout")
+	imported.free()
+	root.transparent_bg = false
+	_setup.set_shadows_enabled(true)
 	# A grazing receiver at N.L=.4 with 60% visibility must cross the .3 band together.
 	var grazing := _patch(Vector3.ZERO, Vector3(sqrt(0.84), 0, 0.4), "cloth", Color.WHITE)
 	_light.rotation = Vector3.ZERO
@@ -124,12 +174,36 @@ func _run() -> void:
 		for x in range(252, 261, 4):
 			_assert_color(occluded.get_pixel(x, y), SHADOWS[0], "Flat shadow interior")
 	_save(occluded, "occlusion")
+	_setup.set_shadows_enabled(false)
+	var cast_disabled := await _image()
+	_assert_color(cast_disabled.get_pixel(256, 192), Color.WHITE, "Full-bright toggle must bypass real cast shadows")
+	_setup.set_shadows_enabled(true)
+	var cast_restored := await _image()
+	_assert_color(cast_restored.get_pixel(256, 192), SHADOWS[0], "Reenabling shadows must restore real cast shadows")
 	receiver.material_override.set_shader_parameter("shadow_receive", 0.0)
 	var unoccluded := await _image()
 	_assert_color(unoccluded.get_pixel(256, 192), Color.WHITE, "Shadow reception disabled")
+	receiver.free()
+	var face := _patch(Vector3.ZERO, Vector3.BACK, "face", DIFFUSE)
+	face.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	face.material_override.set_shader_parameter("world_to_head", Transform3D.IDENTITY)
+	face.material_override.set_shader_parameter("face_half_width", 1.0)
+	face.material_override.set_shader_parameter("face_bottom", -1.0)
+	face.material_override.set_shader_parameter("face_top", -0.5)
+	var face_shadow := await _image()
+	_assert_color(face_shadow.get_pixel(256, 192), DIFFUSE * SHADOWS[1], "Face must receive the real cast-shadow fixture while enabled")
+	_setup.set_shadows_enabled(false)
+	var face_cast_disabled := await _image()
+	_assert_color(face_cast_disabled.get_pixel(256, 192), DIFFUSE, "Face cast-shadow field must be bypassed when disabled")
+	_light.rotation = Vector3(0, PI, 0)
+	var face_back_disabled := await _image()
+	_assert_color(face_back_disabled.get_pixel(256, 192), DIFFUSE, "Face analytic backlight field must be bypassed when disabled")
+	_setup.set_shadows_enabled(true)
+	var face_back_restored := await _image()
+	_assert_color(face_back_restored.get_pixel(256, 192), DIFFUSE * SHADOWS[1], "Face analytic backlight field must return when enabled")
 	if _failed:
 		quit(1)
 		return
 	print("TOON_PALETTE_METRICS diffuse=", lit.get_pixel(64, 275).srgb_to_linear(), " cloth_shadow=", shadow.get_pixel(64, 109).srgb_to_linear(), " cast_shadow=", occluded.get_pixel(256, 192).srgb_to_linear())
-	print("TOON_PALETTE_PASS linear PMX diffuse, four material palettes, combined grazing/visibility band, real cast shadow; MSAA 4x")
+	print("TOON_PALETTE_PASS linear palette, runtime full-bright toggle, colored/front/back/no light, new model UV/alpha, face and real cast shadow restore; MSAA 4x")
 	quit(0)

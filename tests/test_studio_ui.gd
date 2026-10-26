@@ -16,7 +16,16 @@ func _run() -> void:
 	assert(scene.stage.transparent and root.transparent_bg)
 	assert(not root.borderless, "Transparency must retain the system title bar")
 	assert(scene.menu_windows.size() == 4)
+	assert(scene.menu_windows["场景"].is_ancestor_of(scene.light_slider), "Lighting controls belong to the scene page")
+	scene.shadows_toggle.button_pressed = false
+	assert(not scene.shadows_enabled and not scene.key_light.shadow_enabled and not scene.material_setup.shadows_enabled)
+	var config := ConfigFile.new()
+	assert(config.load("user://showcase.cfg") == OK and config.get_value("render", "shadows_enabled") == false)
+	scene.shadows_toggle.button_pressed = true
 	assert(scene.retarget.mode == "vtuber" and scene.app_settings.tracking_mode == "vtuber")
+	scene.app_settings._gesture_toggle.button_pressed = true
+	assert(scene.retarget.hand_gesture_assistance and not scene.receiver.is_running())
+	scene.app_settings._gesture_toggle.button_pressed = false
 	scene._open_menu("捕捉")
 	assert(scene.app_settings.visible and scene.app_settings._tabs.current_tab == 1)
 	assert(scene.app_settings._tabs.get_tab_count() == 2)

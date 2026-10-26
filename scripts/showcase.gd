@@ -53,6 +53,10 @@ var _archive_models: Array = []
 var _model_metadata_path: String = ""
 var _ui_scale := 1.0
 var _preferences_ready: bool = false
+var shadows_enabled := true
+var shadows_toggle: CheckButton
+var _raw_capture_frame := {}
+var _mapped_capture_frame := {}
 
 
 func _ready() -> void:
@@ -99,6 +103,8 @@ func _ready() -> void:
 	add_child(capture_preview)
 	capture_preview.setup(receiver)
 	app_settings.tracking_mode_changed.connect(_apply_tracking_mode)
+	app_settings.hand_gesture_assistance_changed.connect(func(enabled: bool): retarget.set_hand_gesture_assistance(enabled))
+	retarget.set_hand_gesture_assistance(app_settings.hand_gesture_assistance)
 	app_settings.recenter_requested.connect(_recenter_capture)
 	_apply_tracking_mode(app_settings.tracking_mode)
 	app_settings.preview_requested.connect(capture_preview.set_enabled)
@@ -114,7 +120,9 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	var frame: Dictionary = receiver.poll()
 	if not frame.is_empty():
-		retarget.ingest(capture_alignment.correct_frame(frame))
+		_raw_capture_frame = frame
+		_mapped_capture_frame = capture_alignment.correct_frame(frame)
+		retarget.ingest(_mapped_capture_frame)
 	if actor.skeleton != null:
 		retarget.update(delta)
 		material_setup.update_head(actor.skeleton)
@@ -177,6 +185,8 @@ func start_capture() -> void:
 func stop_capture() -> void:
 	receiver.stop()
 	_was_capturing = false
+	_raw_capture_frame.clear()
+	_mapped_capture_frame.clear()
 	if actor.skeleton != null:
 		retarget.reset()
 	if cloth_setup != null:
@@ -267,15 +277,6 @@ func _build_ui() -> void:
 	_button(views, "正面", func(): camera.set_view("front"))
 	_button(views, "侧面", func(): camera.set_view("right"))
 	_button(views, "重新取景", func(): camera.frame_subject())
-	light_slider = _slider(graphics, "灯光方向", -180, 180, light_azimuth, func(value: float):
-		light_azimuth = value
-		_set_light())
-	_slider(graphics, "灯光高度", 5, 85, light_elevation, func(value: float):
-		light_elevation = value
-		_set_light())
-	_slider(graphics, "明暗分界", -0.5, 0.7, shadow_threshold, func(value: float):
-		shadow_threshold = value
-		material_setup.set_shadow_threshold(value))
 	_slider(graphics, "描边宽度", 0, 3, outline_width, func(value: float):
 		outline_width = value
 		material_setup.set_outline_width(value))
@@ -285,10 +286,6 @@ func _build_ui() -> void:
 		material_setup.set_pmx_outline_colors(enabled)
 		_save_preferences())
 	graphics.add_child(pmx_outline_toggle)
-	var rotate_light := CheckButton.new()
-	rotate_light.text = "自动转灯"
-	rotate_light.toggled.connect(func(enabled: bool): turn_light = enabled)
-	graphics.add_child(rotate_light)
 
 	var scene := _menu_page("场景", theme)
 	transparent_toggle = CheckButton.new()
@@ -307,6 +304,26 @@ func _build_ui() -> void:
 	scene.add_child(background_picker)
 	_button(scene, "添加场景 / 图片…", func(): scene_dialog.popup_centered(Vector2i(900, 600)))
 	_button(scene, "清除场景", func(): stage.clear_asset(); _save_preferences())
+	_label(scene, "灯光", 18, STUDIO_THEME.get_color("text", "Studio"))
+	shadows_toggle = CheckButton.new()
+	shadows_toggle.text = "计算阴影"
+	shadows_toggle.button_pressed = shadows_enabled
+	shadows_toggle.tooltip_text = "关闭后所有材质使用照亮色，保留贴图、透明度与描边。"
+	shadows_toggle.toggled.connect(_set_shadows_enabled)
+	scene.add_child(shadows_toggle)
+	light_slider = _slider(scene, "灯光方向", -180, 180, light_azimuth, func(value: float):
+		light_azimuth = value
+		_set_light())
+	_slider(scene, "灯光高度", 5, 85, light_elevation, func(value: float):
+		light_elevation = value
+		_set_light())
+	_slider(scene, "明暗分界", -0.5, 0.7, shadow_threshold, func(value: float):
+		shadow_threshold = value
+		material_setup.set_shadow_threshold(value))
+	var rotate_light := CheckButton.new()
+	rotate_light.text = "自动转灯"
+	rotate_light.toggled.connect(func(enabled: bool): turn_light = enabled)
+	scene.add_child(rotate_light)
 
 	var application := _menu_page("应用", theme)
 	_label(application, "实时角色动捕　OBS 透明输出", 16, STUDIO_THEME.get_color("text", "Studio"))
@@ -320,6 +337,7 @@ func _build_ui() -> void:
 	scale_row.add_child(scale_select)
 	menu_windows["应用"].set_meta("scale_select", scale_select)
 	_label(application, "中键旋转 · Shift + 中键平移 · 滚轮缩放\n小键盘切换视角 · Home 重新取景\nH 隐藏界面 · F12 保存截图", 15, STUDIO_THEME.get_color("muted", "Studio"))
+	_button(application, "保存姿态诊断…", _save_pose_diagnostic).tooltip_text = "保存当前单帧的身体／手部关键点、映射和镜头参数；不含摄像头画面、人脸点或模型文件。"
 
 
 func _panel_style() -> StyleBoxFlat:
@@ -329,7 +347,7 @@ func _panel_style() -> StyleBoxFlat:
 func _menu_page(section: String, theme: Theme) -> VBoxContainer:
 	var window := Window.new()
 	window.title = section
-	window.size = {"模型": Vector2i(560, 390), "画面": Vector2i(590, 570), "场景": Vector2i(520, 330), "应用": Vector2i(540, 330)}[section]
+	window.size = {"模型": Vector2i(560, 390), "画面": Vector2i(590, 400), "场景": Vector2i(590, 620), "应用": Vector2i(540, 390)}[section]
 	window.min_size = Vector2i(420, 260)
 	window.visible = false
 	window.transient = true
@@ -407,12 +425,14 @@ func _button(parent: Node, text: String, callback: Callable) -> Button:
 
 
 func _slider(parent: Node, title: String, low: float, high: float, initial: float, callback: Callable) -> HSlider:
-	_label(parent, title, 13, Color(0.75, 0.81, 0.9))
+	_label(parent, title, 14, STUDIO_THEME.get_color("text", "Studio"))
 	var slider := HSlider.new()
 	slider.min_value = low
 	slider.max_value = high
 	slider.step = (high - low) / 200.0
 	slider.value = initial
+	slider.tooltip_text = "%s：%.2f" % [title, initial]
+	slider.value_changed.connect(func(value: float): slider.tooltip_text = "%s：%.2f" % [title, value])
 	slider.custom_minimum_size.y = 18
 	slider.value_changed.connect(callback)
 	parent.add_child(slider)
@@ -515,6 +535,7 @@ func _unload_model() -> void:
 	actor.clear_model()
 	retarget = preload("res://scripts/mocap_retarget.gd").new()
 	retarget.set_mode(app_settings.tracking_mode)
+	retarget.set_hand_gesture_assistance(app_settings.hand_gesture_assistance)
 	retarget.settings = mapping_settings
 	_model_metadata_path = ""
 	model_label.text = "未导入角色"
@@ -526,6 +547,7 @@ func _install_candidate(candidate: Node3D, metadata: Dictionary, metadata_path: 
 	var rig: Skeleton3D = actor.find_rig(candidate)
 	var next_retarget := preload("res://scripts/mocap_retarget.gd").new()
 	next_retarget.set_mode(app_settings.tracking_mode)
+	next_retarget.set_hand_gesture_assistance(app_settings.hand_gesture_assistance)
 	next_retarget.settings = mapping_settings
 	if not next_retarget.apply(rig, candidate):
 		candidate.free()
@@ -534,6 +556,7 @@ func _install_candidate(candidate: Node3D, metadata: Dictionary, metadata_path: 
 	var next_materials := MarchMaterials.new()
 	next_materials.apply(candidate, metadata)
 	next_materials.set_shadow_threshold(shadow_threshold)
+	next_materials.set_shadows_enabled(shadows_enabled)
 	next_materials.set_outline_width(outline_width)
 	next_materials.set_pmx_outline_colors(material_setup.use_pmx_outline_colors)
 	var next_cloth = null
@@ -545,6 +568,8 @@ func _install_candidate(candidate: Node3D, metadata: Dictionary, metadata_path: 
 			next_cloth = null
 	if cloth_setup is MMDPhysics:
 		cloth_setup.dispose()
+	_raw_capture_frame.clear()
+	_mapped_capture_frame.clear()
 	actor.commit_model(candidate)
 	retarget = next_retarget
 	material_setup = next_materials
@@ -604,6 +629,7 @@ func _save_preferences() -> void:
 	config.set_value("stage", "asset", stage.asset_path)
 	config.set_value("stage", "transparent", stage.transparent)
 	config.set_value("render", "pmx_outline_colors", material_setup.use_pmx_outline_colors)
+	config.set_value("render", "shadows_enabled", shadows_enabled)
 	config.set_value("physics", "body_collision_assistance", body_collision_assistance)
 	config.save("user://showcase.cfg")
 
@@ -613,6 +639,7 @@ func _restore_preferences() -> void:
 	if config.load("user://showcase.cfg") != OK:
 		return
 	_set_ui_scale(float(config.get_value("application", "ui_scale", 1.0)))
+	_set_shadows_enabled(bool(config.get_value("render", "shadows_enabled", true)))
 	var color = config.get_value("stage", "color", stage.background_color)
 	if color is Color:
 		stage.set_background_color(color)
@@ -654,6 +681,8 @@ func _apply_capture_options(_options: Dictionary) -> void:
 
 
 func _apply_tracking_mode(value: String) -> void:
+	_raw_capture_frame.clear()
+	_mapped_capture_frame.clear()
 	retarget.set_mode(value)
 	capture_preview.set_capture_mode(value)
 	if cloth_setup != null:
@@ -663,8 +692,81 @@ func _apply_tracking_mode(value: String) -> void:
 
 
 func _recenter_capture(show_notice: bool = true) -> void:
+	_raw_capture_frame.clear()
+	_mapped_capture_frame.clear()
 	retarget.recenter()
 	if cloth_setup != null:
 		cloth_setup.reset()
 	if show_notice and notice != null:
 		notice.text = "站姿已重置"
+
+
+func _set_shadows_enabled(enabled: bool) -> void:
+	shadows_enabled = enabled
+	shadows_toggle.set_pressed_no_signal(enabled)
+	key_light.shadow_enabled = enabled
+	material_setup.set_shadows_enabled(enabled)
+	_save_preferences()
+
+
+func _pose_diagnostic() -> Dictionary:
+	if _raw_capture_frame.is_empty() or actor.skeleton == null:
+		return {}
+	var bones := {}
+	var mapping := {}
+	for channel in ["left_arm", "right_arm", "left_hand", "right_hand"]:
+		mapping[channel] = mapping_settings.channels.get(channel, {}).duplicate(true)
+	for role in ["左肩", "左腕", "左ひじ", "左手首", "右肩", "右腕", "右ひじ", "右手首"]:
+		if retarget._indices.has(role):
+			var index: int = retarget._indices[role]
+			var pose: Transform3D = actor.skeleton.get_bone_global_pose(index)
+			var target := Transform3D(retarget._global_targets.get(index, retarget._neutral_global[index].basis), pose.origin)
+			bones[role] = {"pose": _diagnostic_transform(pose), "target": _diagnostic_transform(target), "neutral": _diagnostic_transform(retarget._neutral_global[index])}
+	return {"version": 1, "app_version": ProjectSettings.get_setting("application/config/version"),
+		"raw": _diagnostic_frame(_raw_capture_frame), "corrected": _diagnostic_frame(_mapped_capture_frame),
+		"tracking_mode": retarget.mode, "hand_gestures": app_settings.hand_gesture_assistance,
+		"mapping": mapping, "smoothing_speed": retarget.smoothing_speed,
+		"calibration": capture_alignment.profile.duplicate(true), "capture": app_settings.capture_options.duplicate(),
+		"camera": {"transform": _diagnostic_transform(camera.global_transform), "projection": int(camera.projection), "fov": camera.fov, "size": camera.size, "viewport": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y]},
+		"rig_transform": _diagnostic_transform(actor.skeleton.global_transform), "bones": bones}
+
+
+func _save_pose_diagnostic() -> void:
+	if receiver.last_packet_ms < 0 or Time.get_ticks_msec() - receiver.last_packet_ms > 500:
+		notice.text = "请在捕捉出现问题时保存姿态诊断。"
+		return
+	var data := _pose_diagnostic()
+	if data.is_empty():
+		notice.text = "没有可保存的姿态。"
+		return
+	var folder := ProjectSettings.globalize_path("user://diagnostics")
+	if DirAccess.make_dir_recursive_absolute(folder) != OK:
+		notice.text = "无法创建诊断文件夹。"
+		return
+	var path := folder.path_join("pose_%d.json" % Time.get_ticks_usec())
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	if file == null:
+		notice.text = "姿态诊断保存失败。"
+		return
+	file.store_string(JSON.stringify(data, "\t"))
+	file.flush()
+	var error := file.get_error()
+	file.close()
+	if error != OK:
+		notice.text = "姿态诊断写入失败。"
+		return
+	notice.text = "姿态诊断已保存：" + path
+	if DisplayServer.get_name() != "headless":
+		OS.shell_open(folder)
+
+
+static func _diagnostic_frame(frame: Dictionary) -> Dictionary:
+	# Export only body/hand landmarks; RGB, face data and model paths never enter diagnostics.
+	return {"seq": frame.get("seq", -1), "timestamp_ms": frame.get("timestamp_ms", 0), "pose": frame.get("pose"), "hands": frame.get("hands", [])}.duplicate(true)
+
+
+static func _diagnostic_transform(value: Transform3D) -> Array:
+	var result := []
+	for vector: Vector3 in [value.basis.x, value.basis.y, value.basis.z, value.origin]:
+		result.append([vector.x, vector.y, vector.z])
+	return result

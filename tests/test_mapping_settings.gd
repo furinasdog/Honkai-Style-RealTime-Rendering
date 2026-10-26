@@ -11,6 +11,7 @@ func _initialize() -> void:
 
 func _run() -> void:
 	create_timer(10.0).timeout.connect(func(): quit(1))
+	root.size = Vector2i(1280, 720)
 	var settings = SETTINGS.new()
 	assert(is_zero_approx(settings.response_value("left_eye", 0.3)))
 	assert(is_equal_approx(settings.response_value("left_eye", 0.5), 0.5))

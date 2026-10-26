@@ -6,6 +6,7 @@ const TEST_PATH := "res://outputs/app_settings_test.json"
 
 var _capture_events: Array[Dictionary] = []
 var _mode_events: Array[String] = []
+var _gesture_events: Array[bool] = []
 var _calibration_events := 0
 
 
@@ -32,7 +33,9 @@ func _run() -> void:
 	panel.capture_options_changed.connect(func(options: Dictionary): _capture_events.append(options))
 	panel.calibration_requested.connect(func(): _calibration_events += 1)
 	panel.tracking_mode_changed.connect(func(value: String): _mode_events.append(value))
+	panel.hand_gesture_assistance_changed.connect(func(value: bool): _gesture_events.append(value))
 	assert(panel.tracking_mode == "vtuber" and not panel._recenter_button.visible)
+	assert(not panel.hand_gesture_assistance and not panel._gesture_toggle.button_pressed)
 	assert(panel._tabs.get_tab_count() == 2 and not panel.has_signal("blender_path_changed"))
 	var calibration: Button
 	for button: Button in panel.find_children("*", "Button", true, false):
@@ -77,6 +80,8 @@ func _run() -> void:
 	panel._mode.item_selected.emit(1)
 	assert(panel.tracking_mode == "full_body" and panel._recenter_button.visible and _mode_events == ["full_body"])
 	assert(_capture_events.size() == 1, "Changing the tracking solver must not restart the camera")
+	panel._gesture_toggle.button_pressed = true
+	assert(panel.hand_gesture_assistance and _gesture_events == [true] and _capture_events.size() == 1)
 	assert(panel.save_settings() == OK)
 	var saved: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(TEST_PATH))
 	assert(not saved.has("blender_path"), "Retired converter settings must not be saved")
@@ -91,6 +96,7 @@ func _run() -> void:
 	assert(panel.load_settings() == OK)
 	assert(panel.capture_options == saved_capture)
 	assert(panel.tracking_mode == "full_body" and panel._mode.selected == 1)
+	assert(panel.hand_gesture_assistance and panel._gesture_toggle.button_pressed)
 	assert(is_equal_approx(camera.distance, saved_distance) and is_equal_approx(camera.fov, 50.0))
 	assert(panel.save_settings() == OK)
 	assert(not JSON.parse_string(FileAccess.get_file_as_string(TEST_PATH)).has("blender_path"), "Loading old settings must discard the retired converter field")
@@ -100,6 +106,7 @@ func _run() -> void:
 	assert(panel.load_settings() == ERR_PARSE_ERROR)
 	assert(panel.capture_options.device == 0)
 	assert(panel.tracking_mode == "vtuber")
+	assert(not panel.hand_gesture_assistance)
 	assert(is_equal_approx(camera.distance, 3.2) and is_equal_approx(camera.fov, 35.0))
 	var invalid := FileAccess.open(TEST_PATH, FileAccess.WRITE)
 	invalid.store_string(JSON.stringify({"version": 1, "rendering": {"msaa_3d": 99}, "camera": {"fov": -50, "distance": -3, "focus_height": 999, "projection": 9}, "capture": {"device": -3, "width": 999, "height": 999, "fps": 999}, "blender_path": false}))

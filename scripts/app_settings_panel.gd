@@ -5,6 +5,7 @@ signal calibration_requested
 signal preview_requested(enabled: bool)
 signal tracking_mode_changed(mode: String)
 signal recenter_requested
+signal hand_gesture_assistance_changed(enabled: bool)
 
 const SAVE_PATH := "user://app_settings.json"
 const RESOLUTIONS := [Vector2i(640, 480), Vector2i(1280, 720), Vector2i(1920, 1080)]
@@ -14,6 +15,8 @@ const STUDIO_THEME := preload("res://scripts/ui_theme.tres")
 var capture_options: Dictionary = {"device": 0, "width": 640, "height": 480, "fps": 30}
 var settings_path: String = SAVE_PATH
 var tracking_mode := "vtuber"
+var hand_gesture_assistance := false
+var _gesture_toggle: CheckButton
 var _mode: OptionButton
 var _recenter_button: Button
 var _camera: Camera3D
@@ -77,7 +80,7 @@ func _process(_delta: float) -> void:
 
 func save_settings(path: String = "") -> Error:
 	var destination := settings_path if path.is_empty() else path
-	var data := {"version": 1, "rendering": {"msaa_3d": _msaa}, "camera": _read_camera(), "capture": capture_options, "tracking": {"mode": tracking_mode}}
+	var data := {"version": 1, "rendering": {"msaa_3d": _msaa}, "camera": _read_camera(), "capture": capture_options, "tracking": {"mode": tracking_mode, "hand_gestures": hand_gesture_assistance}}
 	var file := FileAccess.open(destination + ".tmp", FileAccess.WRITE)
 	if file == null:
 		return FileAccess.get_open_error()
@@ -93,6 +96,7 @@ func load_settings(path: String = "") -> Error:
 	var source := settings_path if path.is_empty() else path
 	capture_options = {"device": 0, "width": 640, "height": 480, "fps": 30}
 	tracking_mode = "vtuber"
+	hand_gesture_assistance = false
 	_msaa = Viewport.MSAA_4X
 	var camera_options: Dictionary = _defaults.duplicate()
 	var result := OK
@@ -103,6 +107,8 @@ func load_settings(path: String = "") -> Error:
 		else:
 			if decoded.get("tracking") is Dictionary and decoded.tracking.get("mode") in ["vtuber", "full_body"]:
 				tracking_mode = decoded.tracking.mode
+			if decoded.get("tracking") is Dictionary and decoded.tracking.get("hand_gestures") is bool:
+				hand_gesture_assistance = decoded.tracking.hand_gestures
 			if decoded.get("rendering") is Dictionary and _number(decoded.rendering.get("msaa_3d")):
 				_msaa = clampi(int(decoded.rendering.msaa_3d), Viewport.MSAA_DISABLED, Viewport.MSAA_8X)
 			if decoded.get("camera") is Dictionary:
@@ -177,6 +183,7 @@ func _refresh() -> void:
 	_refresh_camera()
 	_mode.select(1 if tracking_mode == "full_body" else 0)
 	_recenter_button.visible = tracking_mode == "full_body"
+	_gesture_toggle.set_pressed_no_signal(hand_gesture_assistance)
 	_device.set_value_no_signal(float(capture_options.device))
 	_resolution.select(RESOLUTIONS.find(Vector2i(capture_options.width, capture_options.height)))
 	_fps.select(FRAME_RATES.find(int(capture_options.fps)))
@@ -260,6 +267,14 @@ func _build() -> void:
 	_mode.item_selected.connect(_set_mode)
 	_recenter_button = _button(capture, "重置站姿", func(): recenter_requested.emit())
 	_recenter_button.tooltip_text = "全身站直后重新建立站姿与接地基准。"
+	_gesture_toggle = CheckButton.new()
+	_gesture_toggle.text = "手势辅助"
+	_gesture_toggle.tooltip_text = "稳定接近握拳、张开或伸食指时，平滑向预制手势收敛；不确定时保留实时手指，不改变手腕方向。"
+	_gesture_toggle.toggled.connect(func(enabled: bool):
+		hand_gesture_assistance = enabled
+		save_settings()
+		hand_gesture_assistance_changed.emit(enabled))
+	capture.add_child(_gesture_toggle)
 	var device_row := _row(capture, "设备编号")
 	_device = SpinBox.new()
 	_device.min_value = 0

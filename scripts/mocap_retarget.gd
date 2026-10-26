@@ -29,6 +29,7 @@ const MORPH_ALIASES := {
 
 var smoothing_speed: float = 14.0
 var mode := "vtuber"
+var hand_gesture_assistance := false
 var age_seconds: float = INF
 var tracking := {"pose": false, "face": false, "hands": 0, "left_hand": false, "right_hand": false, "lower_body": false, "left_leg": false, "right_leg": false}
 var skeleton: Skeleton3D
@@ -50,6 +51,37 @@ var _bone_channels := {}
 var _joint_axes := {}
 var _fullbody: RefCounted
 var _body_delta := Basis.IDENTITY
+var _gesture_assist: RefCounted = preload("res://scripts/hand_gesture_assistance.gd").new()
+var _live_finger_bases := {}
+var _gesture_filter_bones := {}
+
+
+func set_hand_gesture_assistance(enabled: bool) -> void:
+	if hand_gesture_assistance == enabled:
+		return
+	var affected := _gesture_filter_bones.keys()
+	hand_gesture_assistance = enabled
+	_gesture_assist.reset()
+	if not enabled:
+		_clear_gesture_curve_filters()
+	if not enabled and not affected.is_empty() and skeleton != null and age_seconds <= TRACKING_TIMEOUT:
+		_global_targets.merge(_live_finger_bases, true)
+		_resolved_bases.clear()
+		for index: int in affected:
+			if not _live_finger_bases.has(index):
+				continue
+			var parent := _target_basis(skeleton.get_bone_parent(index))
+			var rotation: Quaternion = (parent.inverse() * _live_finger_bases[index]).orthonormalized().get_rotation_quaternion()
+			_targets[index] = _map_joint_rotation(index, rotation, _bone_channels[index])
+
+
+func _clear_gesture_curve_filters(channel: String = "") -> void:
+	for index: int in _gesture_filter_bones.keys():
+		var bone_channel: String = _gesture_filter_bones[index]
+		if channel.is_empty() or channel == bone_channel:
+			if settings != null:
+				settings.reset_filters(bone_channel, str(index))
+			_gesture_filter_bones.erase(index)
 
 
 func set_mode(value: String) -> bool:
@@ -71,6 +103,7 @@ func apply(rig: Skeleton3D, model_root: Node3D) -> bool:
 	_neutral_local.clear()
 	_neutral_global.clear()
 	_targets.clear()
+	_live_finger_bases.clear()
 	_morph_bindings.clear()
 	_morph_targets.clear()
 	_bone_channels.clear()
@@ -187,10 +220,15 @@ func ingest(frame: Dictionary) -> bool:
 		if used_sides.has(side) or not capabilities.get(side_id + "_hand", false) or not _channel_enabled(side_id + "_hand"):
 			continue
 		used_sides[side] = true
-		_apply_hand(SIDES[side], hand.world)
+		_apply_hand(SIDES[side], hand.world, hand.image)
 		tracking.hands += 1
 		tracking.left_hand = tracking.left_hand or side == "Left"
 		tracking.right_hand = tracking.right_hand or side == "Right"
+	if hand_gesture_assistance:
+		for side: String in SIDES:
+			if not used_sides.has(side):
+				_gesture_assist.reset_side(SIDES[side])
+				_clear_gesture_curve_filters("left_hand" if side == "Left" else "right_hand")
 	var face = frame.get("face")
 	if face is Dictionary:
 		_apply_face(face)
@@ -218,6 +256,8 @@ func update(delta: float) -> void:
 		tracking.merge(_fullbody.tracking(), true)
 	if age_seconds > TRACKING_TIMEOUT:
 		_set_neutral_targets()
+		_gesture_assist.reset()
+		_clear_gesture_curve_filters()
 		tracking = {"pose": false, "face": false, "hands": 0, "left_hand": false, "right_hand": false}
 		tracking.merge({"lower_body": false, "left_leg": false, "right_leg": false})
 	if mode == "full_body":
@@ -241,6 +281,8 @@ func reset() -> void:
 	_last_sequence = -1
 	_last_timestamp_ms = -1.0
 	_joint_axes.clear()
+	_gesture_assist.reset()
+	_gesture_filter_bones.clear()
 	_body_delta = Basis.IDENTITY
 	if _fullbody != null:
 		_fullbody.reset()
@@ -261,6 +303,7 @@ func reset() -> void:
 
 func _set_neutral_targets() -> void:
 	_global_targets.clear()
+	_live_finger_bases.clear()
 	_resolved_bases.clear()
 	for index: int in _indices.values():
 		_targets[index] = _neutral_local[index]
@@ -338,7 +381,7 @@ func _arm_delta(side: String, upper: Vector3, lower: Vector3, body_delta: Basis)
 	return Basis(swing.get_rotation_quaternion().slerp(plane_delta.get_rotation_quaternion(), weight))
 
 
-func _apply_hand(side: String, points: Array) -> void:
+func _apply_hand(side: String, points: Array, image: Array) -> void:
 	var wrist: int = _indices[side + "手首"]
 	var middle: int = _indices[side + "中指１"]
 	var index: int = _indices[side + "人指１"]
@@ -349,8 +392,19 @@ func _apply_hand(side: String, points: Array) -> void:
 	if neutral_frame != INVALID_FRAME and measured_frame != INVALID_FRAME:
 		hand_delta = measured_frame * neutral_frame.inverse()
 		_global_targets[wrist] = hand_delta * _neutral_global[wrist].basis.orthonormalized()
+	var assistance := {"gesture": "", "weight": 0.0}
+	if hand_gesture_assistance:
+		if neutral_frame != INVALID_FRAME and measured_frame != INVALID_FRAME:
+			assistance = _gesture_assist.sample(side, points, image, _frame_delta)
+		else:
+			_gesture_assist.reset_side(side)
+			_clear_gesture_curve_filters("left_hand" if side == "左" else "right_hand")
+	var palm_normal := neutral_frame.z * (1.0 if side == "左" else -1.0)
+	var thumb: int = _indices.get(side + FINGERS[0][0], -1)
+	var toward_palm: Vector3 = _neutral_global[middle].origin - _neutral_global[thumb].origin if thumb >= 0 else neutral_frame.y
 	for finger in 5:
 		var start := 1 if finger == 0 else finger * 4 + 1
+		var complete: bool = assistance.weight > 0.0 and FINGERS[finger].all(func(part: String): return _indices.has(side + part))
 		for segment in 3:
 			var name: String = side + FINGERS[finger][segment]
 			if not _indices.has(name):
@@ -359,6 +413,17 @@ func _apply_hand(side: String, points: Array) -> void:
 			if not next_name.is_empty() and not _indices.has(next_name):
 				next_name = ""
 			_aim(name, next_name, _point(points[start + segment + 1]) - _point(points[start + segment]), hand_delta)
+			var bone: int = _indices[name]
+			if not _global_targets.has(bone):
+				continue
+			_live_finger_bases[bone] = _global_targets[bone]
+			if complete:
+				_gesture_filter_bones[bone] = _bone_channels[bone]
+				var base: int = _indices[side + FINGERS[finger][0]]
+				var next: int = _indices[side + FINGERS[finger][1]]
+				var rotation: Basis = _gesture_assist.preset_rotation(assistance.gesture, finger, segment, _neutral_direction(base, next), palm_normal, toward_palm)
+				var preset: Basis = hand_delta * rotation * _neutral_global[bone].basis.orthonormalized()
+				_global_targets[bone] = Basis(_global_targets[bone].get_rotation_quaternion().slerp(preset.get_rotation_quaternion(), assistance.weight))
 
 
 func _apply_face(face: Dictionary) -> void:
@@ -404,9 +469,18 @@ func _aim(name: String, child_name: String, measured: Vector3, reference_delta: 
 		return
 	var index: int = _indices[name]
 	var neutral: Transform3D = _neutral_global[index]
+	var direction := _neutral_direction(index, int(_indices.get(child_name, -1)))
+	if direction.length_squared() < 0.00000001:
+		return
+	direction = reference_delta * direction
+	_global_targets[index] = Basis(Quaternion(direction.normalized(), measured.normalized())) * reference_delta * neutral.basis.orthonormalized()
+
+
+func _neutral_direction(index: int, child: int = -1) -> Vector3:
+	var neutral: Transform3D = _neutral_global[index]
 	var direction: Vector3
-	if not child_name.is_empty():
-		direction = _neutral_global[_indices[child_name]].origin - neutral.origin
+	if child >= 0:
+		direction = _neutral_global[child].origin - neutral.origin
 	else:
 		var tails = skeleton.get_meta("pmx_tail_offsets", PackedVector3Array())
 		if tails is PackedVector3Array and index < tails.size() and tails[index].is_finite():
@@ -415,10 +489,7 @@ func _aim(name: String, child_name: String, measured: Vector3, reference_delta: 
 			var parent := skeleton.get_bone_parent(index)
 			# shortcut: absent authored tails use the previous segment; add a rig profile for curved terminal bones.
 			direction = neutral.origin - _neutral_global[parent].origin if parent >= 0 else Vector3.ZERO
-	if direction.length_squared() < 0.00000001:
-		return
-	direction = reference_delta * direction
-	_global_targets[index] = Basis(Quaternion(direction.normalized(), measured.normalized())) * reference_delta * neutral.basis.orthonormalized()
+	return direction
 
 
 func _set_delta(name: String, rotation: Quaternion) -> void:
