@@ -12,7 +12,7 @@ $script:ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $script:BuildRoot = Join-Path $script:ProjectRoot 'build'
 $script:DistributionRoot = Join-Path $script:ProjectRoot 'dist/HonkaiRender'
 $script:NativeLibraries = @('mocap_native.dll', 'libmediapipe.dll', '7z.dll')
-$script:ModelFiles = @('face_landmarker.task', 'hand_landmarker.task', 'pose_landmarker_lite.task', 'manifest.json')
+$script:ModelFiles = @('face_landmarker.task', 'hand_landmarker.task', 'pose_landmarker_full.task', 'pose_landmarker_lite.task', 'manifest.json')
 
 function Write-Utf8File([string]$Path, [string]$Text) {
     [IO.File]::WriteAllText($Path, $Text, (New-Object Text.UTF8Encoding($false)))

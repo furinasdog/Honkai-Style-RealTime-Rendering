@@ -175,7 +175,7 @@ func start_capture() -> void:
 	if receiver.is_running() or actor.skeleton == null:
 		return
 	retarget.reset()
-	if receiver.start(app_settings.capture_options):
+	if receiver.start(app_settings.capture_options.merged({"pose_model": app_settings.pose_model})):
 		_was_capturing = true
 		notice.text = "请让全身入镜" if retarget.mode == "full_body" else "请让脸和双手入镜"
 	else:
@@ -725,6 +725,7 @@ func _pose_diagnostic() -> Dictionary:
 	return {"version": 1, "app_version": ProjectSettings.get_setting("application/config/version"),
 		"raw": _diagnostic_frame(_raw_capture_frame), "corrected": _diagnostic_frame(_mapped_capture_frame),
 		"tracking_mode": retarget.mode, "hand_gestures": app_settings.hand_gesture_assistance,
+		"pose_model": receiver.pose_model,
 		"mapping": mapping, "smoothing_speed": retarget.smoothing_speed,
 		"calibration": capture_alignment.profile.duplicate(true), "capture": app_settings.capture_options.duplicate(),
 		"camera": {"transform": _diagnostic_transform(camera.global_transform), "projection": int(camera.projection), "fov": camera.fov, "size": camera.size, "viewport": [get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y]},

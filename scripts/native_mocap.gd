@@ -4,6 +4,8 @@ const FACE_CHANNELS := ["_neutral", "browDownLeft", "browDownRight", "browInnerU
 
 var _native: RefCounted
 var _initialized := false
+var pose_model := ""
+var _model_error := ""
 var last_packet_ms := -1
 var packet_count := 0
 var capture_fps: float:
@@ -23,17 +25,35 @@ func open() -> Error:
 
 
 func start(options: Dictionary) -> bool:
-	if open() != OK:
+	if not _prepare_pose_model(str(options.get("pose_model", "full"))):
 		return false
-	if not _initialized:
-		var models: Array = []
-		for name in ["pose_landmarker_lite.task", "hand_landmarker.task", "face_landmarker.task"]:
-			models.append(FileAccess.get_file_as_bytes("res://mocap/models/" + name))
-		_initialized = bool(_native.initialize(models))
-		if not _initialized:
-			return false
 	reset()
 	return bool(_native.start_camera(int(options.device), int(options.width), int(options.height), int(options.fps)))
+
+
+func _prepare_pose_model(selected: String) -> bool:
+	_model_error = ""
+	if selected not in ["full", "lite"]:
+		_model_error = "不支持的姿态模型：" + selected
+		return false
+	if open() != OK:
+		return false
+	if _initialized and pose_model == selected:
+		return true
+	if is_running():
+		_model_error = "请先停止捕捉，再切换姿态模型。"
+		return false
+	var models: Array = []
+	for name: String in ["pose_landmarker_%s.task" % selected, "hand_landmarker.task", "face_landmarker.task"]:
+		var path := "res://mocap/models/" + name
+		if not FileAccess.file_exists(path):
+			_model_error = "缺少动捕模型：" + name + "，请检查完整发行包。"
+			return false
+		models.append(FileAccess.get_file_as_bytes(path))
+	_initialized = bool(_native.initialize(models))
+	pose_model = selected if _initialized else ""
+	reset()
+	return _initialized
 
 
 func stop() -> void:
@@ -46,6 +66,8 @@ func close() -> void:
 	stop()
 	_native = null
 	_initialized = false
+	pose_model = ""
+	_model_error = ""
 
 
 func reset() -> void:
@@ -62,6 +84,8 @@ func is_live() -> bool:
 
 
 func get_error() -> String:
+	if not _model_error.is_empty():
+		return _model_error
 	return str(_native.get_error()) if _native != null else "无法加载原生动捕模块，请检查完整发行文件。"
 
 

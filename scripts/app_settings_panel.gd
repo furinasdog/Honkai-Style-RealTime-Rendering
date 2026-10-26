@@ -15,6 +15,8 @@ const STUDIO_THEME := preload("res://scripts/ui_theme.tres")
 var capture_options: Dictionary = {"device": 0, "width": 640, "height": 480, "fps": 30}
 var settings_path: String = SAVE_PATH
 var tracking_mode := "vtuber"
+var pose_model := "full"
+var _pose_model_choice: OptionButton
 var hand_gesture_assistance := false
 var _gesture_toggle: CheckButton
 var _mode: OptionButton
@@ -80,7 +82,7 @@ func _process(_delta: float) -> void:
 
 func save_settings(path: String = "") -> Error:
 	var destination := settings_path if path.is_empty() else path
-	var data := {"version": 1, "rendering": {"msaa_3d": _msaa}, "camera": _read_camera(), "capture": capture_options, "tracking": {"mode": tracking_mode, "hand_gestures": hand_gesture_assistance}}
+	var data := {"version": 1, "rendering": {"msaa_3d": _msaa}, "camera": _read_camera(), "capture": capture_options, "tracking": {"mode": tracking_mode, "hand_gestures": hand_gesture_assistance, "pose_model": pose_model}}
 	var file := FileAccess.open(destination + ".tmp", FileAccess.WRITE)
 	if file == null:
 		return FileAccess.get_open_error()
@@ -96,6 +98,7 @@ func load_settings(path: String = "") -> Error:
 	var source := settings_path if path.is_empty() else path
 	capture_options = {"device": 0, "width": 640, "height": 480, "fps": 30}
 	tracking_mode = "vtuber"
+	pose_model = "full"
 	hand_gesture_assistance = false
 	_msaa = Viewport.MSAA_4X
 	var camera_options: Dictionary = _defaults.duplicate()
@@ -109,6 +112,8 @@ func load_settings(path: String = "") -> Error:
 				tracking_mode = decoded.tracking.mode
 			if decoded.get("tracking") is Dictionary and decoded.tracking.get("hand_gestures") is bool:
 				hand_gesture_assistance = decoded.tracking.hand_gestures
+			if decoded.get("tracking") is Dictionary and decoded.tracking.get("pose_model") in ["full", "lite"]:
+				pose_model = decoded.tracking.pose_model
 			if decoded.get("rendering") is Dictionary and _number(decoded.rendering.get("msaa_3d")):
 				_msaa = clampi(int(decoded.rendering.msaa_3d), Viewport.MSAA_DISABLED, Viewport.MSAA_8X)
 			if decoded.get("camera") is Dictionary:
@@ -184,6 +189,7 @@ func _refresh() -> void:
 	_mode.select(1 if tracking_mode == "full_body" else 0)
 	_recenter_button.visible = tracking_mode == "full_body"
 	_gesture_toggle.set_pressed_no_signal(hand_gesture_assistance)
+	_pose_model_choice.select(1 if pose_model == "lite" else 0)
 	_device.set_value_no_signal(float(capture_options.device))
 	_resolution.select(RESOLUTIONS.find(Vector2i(capture_options.width, capture_options.height)))
 	_fps.select(FRAME_RATES.find(int(capture_options.fps)))
@@ -204,10 +210,11 @@ func _refresh_camera() -> void:
 
 func _apply_capture() -> void:
 	var resolution: Vector2i = RESOLUTIONS[_resolution.selected]
+	pose_model = "lite" if _pose_model_choice.selected == 1 else "full"
 	capture_options = {"device": int(_device.value), "width": resolution.x, "height": resolution.y, "fps": FRAME_RATES[_fps.selected]}
 	save_settings()
 	capture_options_changed.emit(capture_options.duplicate())
-	_status.text = "已应用摄像头设置"
+	_status.text = "已应用捕捉设置"
 
 
 func _set_mode(index: int) -> void:
@@ -265,6 +272,8 @@ func _build() -> void:
 	_mode = _choice(capture, "动捕模式", ["VTuber · 上半身", "全身动捕"])
 	_mode.tooltip_text = "VTuber 保持下肢站姿。全身模式需双髋、膝盖及脚入镜，位置为单目估算。"
 	_mode.item_selected.connect(_set_mode)
+	_pose_model_choice = _choice(capture, "姿态模型", ["Full · 均衡", "Lite · 省性能"])
+	_pose_model_choice.tooltip_text = "Full 默认，Lite 适合性能较弱的电脑。模型随包提供，无需联网；点击应用后生效。"
 	_recenter_button = _button(capture, "重置站姿", func(): recenter_requested.emit())
 	_recenter_button.tooltip_text = "全身站直后重新建立站姿与接地基准。"
 	_gesture_toggle = CheckButton.new()
@@ -284,7 +293,7 @@ func _build() -> void:
 	_resolution = _choice(capture, "目标分辨率", ["640 × 480", "1280 × 720", "1920 × 1080"])
 	_fps = _choice(capture, "目标帧率", ["15 FPS", "24 FPS", "30 FPS", "60 FPS"])
 	_device.tooltip_text = "0 通常为默认摄像头。修改设备、分辨率或帧率后点击应用。"
-	_button(capture, "应用摄像头设置", _apply_capture)
+	_button(capture, "应用捕捉设置", _apply_capture)
 	_button(capture, "相机方位校正…", func(): calibration_requested.emit())
 	_preview_toggle = CheckButton.new()
 	_preview_toggle.text = "摄像头预览"

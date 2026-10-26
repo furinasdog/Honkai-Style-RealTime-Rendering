@@ -1,6 +1,7 @@
 #requires -Version 7.0
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot '../tools/build_portable.ps1')
+if ('pose_landmarker_full.task' -notin $script:ModelFiles -or 'pose_landmarker_lite.task' -notin $script:ModelFiles) { throw 'Both offline pose models must enter the export stage' }
 $fixture = Join-Path $script:ProjectRoot ('outputs/portable_build_' + [guid]::NewGuid().ToString('N'))
 [void][IO.Directory]::CreateDirectory($fixture)
 $plain = Join-Path $fixture 'plain'

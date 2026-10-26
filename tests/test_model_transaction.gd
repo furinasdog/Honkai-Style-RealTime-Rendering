@@ -20,6 +20,14 @@ func _run() -> void:
 	assert(scene._adopt_model(metadata.model_file, metadata, args[0], false))
 	assert(scene.retarget.mode == "full_body", "Imported models must retain the selected capture mode")
 	assert(scene.retarget.hand_gesture_assistance and not scene.material_setup.shadows_enabled, "New models must inherit gesture and shading settings")
+	var fake = preload("res://tests/test_pose_models.gd").FakeNative.new()
+	scene.receiver._native = fake
+	scene.app_settings.pose_model = "lite"
+	scene.start_capture()
+	assert(scene.receiver.pose_model == "lite" and fake.sizes == [5777746] and fake.active, "The application must pass its selected pose model to the native receiver")
+	scene.stop_capture()
+	scene.receiver.close()
+	assert(scene.receiver.open() == OK)
 	assert(scene._pose_diagnostic().is_empty(), "No diagnostic can be exported without a capture frame")
 	scene._raw_capture_frame = {"seq": 1, "timestamp_ms": 100, "pose": {"world": [[0, 0, 0, 1]], "image": [[0.5, 0.5, 0, 1]]}, "hands": [], "face": {"private": "must not be exported"}, "image": "private RGB fixture"}
 	scene._mapped_capture_frame = scene._raw_capture_frame.duplicate(true)
