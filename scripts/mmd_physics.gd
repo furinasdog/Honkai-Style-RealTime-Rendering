@@ -23,6 +23,7 @@ var warnings: Array[String] = []
 var assisted_pairs: Array[Vector2i] = []
 var _prevent_body_clipping := true
 var _joint_pairs: Dictionary = {}
+var _rest_cloth_overlaps: Dictionary = {}
 var _rig: Skeleton3D
 var _model: Node3D
 var _world_root: Node3D
@@ -30,6 +31,7 @@ var _entries: Array[Dictionary] = []
 var _dynamic: Array[Dictionary] = []
 var _dynamic_bones: Dictionary = {}
 var _hair_bones: Dictionary = {}
+var _hair_shells: Array[Dictionary] = []
 var _base_local: Dictionary = {}
 var _reset_requested := false
 var _ready_for_simulation := false
@@ -137,6 +139,7 @@ func apply(rig: Skeleton3D, model_root: Node3D, data: Dictionary) -> bool:
 			_dynamic_bones[bone] = entry
 			_dynamic.append(entry)
 	_dynamic.sort_custom(func(a: Dictionary, b: Dictionary): return _depth(a.bone) < _depth(b.bone))
+	_fit_hair_shapes()
 	for source: Dictionary in data.joints:
 		var a := int(source.body_a)
 		var b := int(source.body_b)
@@ -157,6 +160,7 @@ func apply(rig: Skeleton3D, model_root: Node3D, data: Dictionary) -> bool:
 		_configure_joint(joint, source, _entries[a], _entries[b])
 		joints.append(joint)
 		_joint_pairs[Vector2i(mini(a, b), maxi(a, b))] = true
+	_create_hair_shells()
 	_configure_collisions()
 	counts.bodies = bodies.size()
 	counts.joints = joints.size()
@@ -179,12 +183,14 @@ func _configure_collisions() -> void:
 	var torso: Dictionary = {}
 	for index in _entries.size():
 		var entry: Dictionary = _entries[index]
+		if entry.has("hair_shape"):
+			var shape: Shape3D = entry.hair_shape if _prevent_body_clipping else entry.authored_shape
+			if entry.body.get_child(0).shape != shape:
+				entry.body.get_child(0).shape = shape
 		entry.body.collision_mask = int(entry.source.get("collision_mask", 65535)) & 65535
-		if _is_hair(entry) and entry.mode != 0 and entry.bone >= 0:
-			var parent := _rig.get_bone_parent(entry.bone)
-			if parent >= 0 and (_hair_bones.has(parent) or _hair_name(_rig.get_bone_name(parent))):
-				hair_tips[index] = true
-		if entry.mode == 0 and _torso_name(str(entry.source.get("bone", ""))):
+		if _is_hair_tip(entry):
+			hair_tips[index] = true
+		if entry.mode == 0 and _body_contact_bone(str(entry.source.get("bone", ""))) or entry.mode != 0 and not _is_hair(entry):
 			torso[index] = true
 	if _prevent_body_clipping:
 		for hair_index: int in hair_tips:
@@ -192,10 +198,16 @@ func _configure_collisions() -> void:
 				var pair := Vector2i(mini(hair_index, torso_index), maxi(hair_index, torso_index))
 				if _head_neck_name(str(_entries[torso_index].source.get("bone", ""))) and _rest_overlap(_entries[hair_index], _entries[torso_index]):
 					continue
+				if _entries[torso_index].mode != 0 and _rest_overlap(_entries[hair_index], _entries[torso_index]):
+					continue
 				if not _joint_pairs.has(pair):
 					assisted_pairs.append(pair)
 					bodies[hair_index].collision_mask |= bodies[torso_index].collision_layer
 					bodies[torso_index].collision_mask |= bodies[hair_index].collision_layer
+		for index: int in hair_tips:
+			bodies[index].collision_mask |= 1 << 16
+	for shell in _hair_shells:
+		shell.body.collision_layer = 1 << 16 if _prevent_body_clipping else 0
 	var assisted: Dictionary = {}
 	for pair in assisted_pairs:
 		assisted[pair] = true
@@ -208,13 +220,125 @@ func _configure_collisions() -> void:
 			var b_allows: bool = (int(_entries[b_index].source.get("collision_mask", 65535)) & bodies[a_index].collision_layer) != 0
 			var allowed: bool = (a_allows and b_allows or assisted.has(pair)) and not _joint_pairs.has(pair)
 			var native_contact := (bodies[a_index].collision_mask & bodies[b_index].collision_layer) != 0 or (bodies[b_index].collision_mask & bodies[a_index].collision_layer) != 0
-			var needs_exception: bool = _joint_pairs.has(pair) or native_contact and not allowed
+			if not _ready_for_simulation:
+				var a: Dictionary = _entries[a_index]
+				var b: Dictionary = _entries[b_index]
+				if a.mode != 0 and b.mode != 0 and a.source.shape == "box" and b.source.shape == "box" and a.source.get("collision_group", 0) == b.source.get("collision_group", 0) and not _is_hair(a) and not _is_hair(b) and _rest_overlap(a, b):
+					_rest_cloth_overlaps[pair] = true
+			var needs_exception: bool = _joint_pairs.has(pair) or native_contact and (not allowed or _rest_cloth_overlaps.has(pair))
 			if not needs_exception and bodies[b_index] in exceptions:
 				bodies[a_index].remove_collision_exception_with(bodies[b_index])
 			elif needs_exception and bodies[b_index] not in exceptions:
 				bodies[a_index].add_collision_exception_with(bodies[b_index])
 	counts["assisted_body_collision_pairs"] = assisted_pairs.size()
 	counts["recognized_hair_bodies"] = hair_tips.size()
+	counts["hair_cloth_shells"] = _hair_shells.size()
+	counts["rest_cloth_overlap_exceptions"] = _rest_cloth_overlaps.size()
+
+
+func _fit_hair_shapes() -> void:
+	# shortcut: convex bone proxies leave thin-sheet skinning crossings; exact contact needs a mesh cloth solver.
+	var clouds := {}
+	for instance: MeshInstance3D in _model.find_children("*", "MeshInstance3D", true, false):
+		if instance.mesh == null or instance.skin == null or instance.get_node_or_null(instance.skeleton) != _rig:
+			continue
+		var binds := PackedInt32Array()
+		for bind in instance.skin.get_bind_count():
+			var bone := instance.skin.get_bind_bone(bind)
+			binds.append(bone if bone >= 0 else _rig.find_bone(instance.skin.get_bind_name(bind)))
+		for surface in instance.mesh.get_surface_count():
+			var material := instance.get_active_material(surface)
+			if material == null or not (_hair_name(material.resource_name) or material is ShaderMaterial and material.get_shader_parameter("category") == 2):
+				continue
+			var arrays := instance.mesh.surface_get_arrays(surface)
+			if arrays[Mesh.ARRAY_BONES] == null or arrays[Mesh.ARRAY_WEIGHTS] == null or arrays[Mesh.ARRAY_NORMAL] == null:
+				continue
+			var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+			var indices: PackedInt32Array = arrays[Mesh.ARRAY_BONES]
+			var weights: PackedFloat32Array = arrays[Mesh.ARRAY_WEIGHTS]
+			var stride := indices.size() / points.size()
+			for vertex in points.size():
+				for slot in stride:
+					var index := vertex * stride + slot
+					if weights[index] < 0.2 or indices[index] < 0 or indices[index] >= binds.size():
+						continue
+					var bone := binds[indices[index]]
+					if not _dynamic_bones.has(bone) or not _is_hair_tip(_dynamic_bones[bone]):
+						continue
+					var entry: Dictionary = _dynamic_bones[bone]
+					var local: Transform3D = entry.rest_world.affine_inverse() * instance.global_transform
+					if not clouds.has(bone):
+						clouds[bone] = PackedVector3Array()
+					var thickness := minf(0.001, _vector(entry.source.size).length() * 0.02)
+					for side in [-1.0, 1.0]:
+						clouds[bone].append(local * (points[vertex] + normals[vertex] * thickness * side))
+	for bone: int in clouds:
+		if clouds[bone].size() < 8:
+			continue
+		var shape := ConvexPolygonShape3D.new()
+		shape.points = clouds[bone]
+		var entry: Dictionary = _dynamic_bones[bone]
+		entry["authored_shape"] = entry.body.get_child(0).shape
+		entry["hair_shape"] = shape
+	counts["mesh_hair_shapes"] = clouds.size()
+
+
+func _create_hair_shells() -> void:
+	# Hair-only convex clothing envelopes fill gaps between the authored naked-body capsules.
+	var anchors := {}
+	for entry in _entries:
+		var bone_name := str(entry.source.get("bone", ""))
+		if entry.mode == 0 and entry.bone >= 0 and _body_contact_bone(bone_name) and not _head_neck_name(bone_name):
+			anchors[entry.bone] = entry
+	var clouds := {}
+	for instance: MeshInstance3D in _model.find_children("*", "MeshInstance3D", true, false):
+		if instance.mesh == null or instance.skin == null or instance.get_node_or_null(instance.skeleton) != _rig:
+			continue
+		var binds := PackedInt32Array()
+		for bind in instance.skin.get_bind_count():
+			var bone := instance.skin.get_bind_bone(bind)
+			binds.append(bone if bone >= 0 else _rig.find_bone(instance.skin.get_bind_name(bind)))
+		var to_rig := _rig.global_transform.affine_inverse() * instance.global_transform
+		for surface in instance.mesh.get_surface_count():
+			var material := instance.get_active_material(surface)
+			if not material is ShaderMaterial or material.get_shader_parameter("category") != 3:
+				continue
+			var arrays := instance.mesh.surface_get_arrays(surface)
+			if arrays[Mesh.ARRAY_BONES] == null or arrays[Mesh.ARRAY_WEIGHTS] == null:
+				continue
+			var points: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var joints: PackedInt32Array = arrays[Mesh.ARRAY_BONES]
+			var weights: PackedFloat32Array = arrays[Mesh.ARRAY_WEIGHTS]
+			var stride := joints.size() / points.size()
+			for vertex in points.size():
+				for slot in stride:
+					var index := vertex * stride + slot
+					if weights[index] < 0.05 or joints[index] < 0 or joints[index] >= binds.size():
+						continue
+					var bone := binds[joints[index]]
+					while bone >= 0 and not anchors.has(bone) and not _dynamic_bones.has(bone) and not _head_neck_name(_rig.get_bone_name(bone)):
+						bone = _rig.get_bone_parent(bone)
+					if not anchors.has(bone):
+						continue
+					if not clouds.has(bone):
+						clouds[bone] = PackedVector3Array()
+					clouds[bone].append(_rig.get_bone_global_rest(bone).affine_inverse() * to_rig * points[vertex])
+	for bone: int in clouds:
+		if clouds[bone].size() < 4:
+			continue
+		var shape := ConvexPolygonShape3D.new()
+		shape.points = clouds[bone]
+		var body := AnimatableBody3D.new()
+		body.sync_to_physics = false
+		body.top_level = true
+		body.collision_mask = 0
+		var collision := CollisionShape3D.new()
+		collision.shape = shape
+		body.add_child(collision)
+		body.transform = _rig.global_transform * _animated_pose(bone, {})
+		_world_root.add_child(body)
+		_hair_shells.append({"bone": bone, "body": body})
 
 
 func _hair_name(value: String) -> bool:
@@ -224,6 +348,13 @@ func _hair_name(value: String) -> bool:
 
 func _is_hair(entry: Dictionary) -> bool:
 	return _hair_bones.has(entry.bone) or _hair_name(str(entry.source.get("bone", ""))) or _hair_name(str(entry.source.get("name", "")))
+
+
+func _is_hair_tip(entry: Dictionary) -> bool:
+	if entry.mode == 0 or entry.bone < 0 or not _is_hair(entry):
+		return false
+	var parent := _rig.get_bone_parent(entry.bone)
+	return parent >= 0 and (_hair_bones.has(parent) or _hair_name(_rig.get_bone_name(parent)))
 
 
 func _collect_hair_bones() -> void:
@@ -259,11 +390,36 @@ func _torso_name(value: String) -> bool:
 	return value in ["左腕", "右腕"] or _head_neck_name(value)
 
 
+func _body_contact_bone(value: String) -> bool:
+	return _torso_name(value) or value.to_lower() in ["腰", "hips", "pelvis"] or _protected_bone(value) and value not in BODY_BONES
+
+
 func _head_neck_name(value: String) -> bool:
 	return value in ["頭", "首"] or value.to_lower() in ["head", "neck", "j_bip_c_head", "j_bip_c_neck"]
 
 
 func _rest_overlap(a: Dictionary, b: Dictionary) -> bool:
+	if str(a.source.shape) == "box" and str(b.source.shape) == "box":
+		var axes: Array[Vector3] = []
+		var basis_a: Basis = a.rest_world.basis.orthonormalized()
+		var basis_b: Basis = b.rest_world.basis.orthonormalized()
+		for axis in 3:
+			axes.append(basis_a[axis])
+			axes.append(basis_b[axis])
+			for other in 3:
+				axes.append(basis_a[axis].cross(basis_b[other]))
+		var delta: Vector3 = b.rest_world.origin - a.rest_world.origin
+		for axis in axes:
+			if axis.length_squared() < 0.000001:
+				continue
+			axis = axis.normalized()
+			var radius := 0.0
+			for component in 3:
+				radius += absf(axis.dot(basis_a[component])) * maxf(0.0005, float(a.source.size[component]))
+				radius += absf(axis.dot(basis_b[component])) * maxf(0.0005, float(b.source.size[component]))
+			if absf(axis.dot(delta)) >= radius - 0.0002:
+				return false
+		return true
 	var endpoints: Array[Vector3] = []
 	var radius := 0.0
 	for entry in [a, b]:
@@ -285,6 +441,8 @@ func _physics_process(_delta: float) -> void:
 		reset()
 	var animated: Dictionary = {}
 	var physical: Dictionary = {}
+	for shell in _hair_shells:
+		shell.body.global_transform = _rig.global_transform * _animated_pose(shell.bone, animated)
 	for entry in _entries:
 		if entry.mode == 0:
 			entry.body.global_transform = _animated_target(entry, animated)
@@ -303,6 +461,8 @@ func _move_with_model() -> void:
 		if body is RigidBody3D:
 			body.linear_velocity = motion.basis * body.linear_velocity
 			body.angular_velocity = motion.basis.orthonormalized() * body.angular_velocity
+	for shell in _hair_shells:
+		_teleport_body(shell.body, motion * shell.body.global_transform)
 	_last_model_transform = current
 
 
@@ -341,6 +501,8 @@ func reset() -> void:
 		return
 	_reset_requested = false
 	var animated: Dictionary = {}
+	for shell in _hair_shells:
+		_teleport_body(shell.body, _rig.global_transform * _animated_pose(shell.bone, animated))
 	for entry in _entries:
 		var body: PhysicsBody3D = entry.body
 		_teleport_body(body, _animated_target(entry, animated))
@@ -355,6 +517,8 @@ func dispose() -> void:
 	_ready_for_simulation = false
 	active = false
 	set_physics_process(false)
+	for shell in _hair_shells:
+		shell.body.collision_layer = 0
 	for body in bodies:
 		if is_instance_valid(body):
 			body.collision_layer = 0

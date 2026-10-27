@@ -1,0 +1,63 @@
+extends SceneTree
+
+
+func _initialize() -> void:
+	call_deferred("_run")
+
+
+func _run() -> void:
+	create_timer(20.0).timeout.connect(func(): quit(1))
+	var model := Node3D.new()
+	root.add_child(model)
+	var instance := MeshInstance3D.new()
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = PackedVector3Array([Vector3(-0.1, 0, 0), Vector3(0.1, 0, 0), Vector3(0.1, 0.2, 0.02), Vector3(-0.1, 0.2, 0.02)])
+	arrays[Mesh.ARRAY_NORMAL] = PackedVector3Array([Vector3.BACK, Vector3.BACK, Vector3.BACK, Vector3.BACK])
+	arrays[Mesh.ARRAY_TEX_UV] = PackedVector2Array([Vector2(0,0), Vector2(1,0), Vector2(1,1), Vector2(0,1)])
+	arrays[Mesh.ARRAY_INDEX] = PackedInt32Array([0,2,1,0,3,2])
+	instance.mesh = ArrayMesh.new()
+	instance.mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var original := StandardMaterial3D.new()
+	original.resource_name = "face"
+	instance.mesh.surface_set_material(0, original)
+	model.add_child(instance)
+	var metadata := {"archive_sha256": "synthetic-render-map-test", "source_pmx": "face.pmx", "head": {"half_width": 0.1, "face_bottom": 0.0, "face_top": 0.2}, "materials": [{"name": "face", "source_name": "face", "base_color": [1,1,1,1], "edge_enabled": false}]}
+	var renderer := HonkaiMMDMaterials.new()
+	renderer.enhanced = false
+	renderer.apply(model, metadata)
+	assert(not DirAccess.dir_exists_absolute("user://render_maps"), "Disabled enhancement must not generate auxiliary maps")
+	var material: ShaderMaterial = instance.get_active_material(0)
+	assert(not material.get_shader_parameter("enhanced"))
+	renderer.set_enhanced(true)
+	assert(material.get_shader_parameter("enhanced") and material.get_shader_parameter("has_generated_map"))
+	var generated: Texture2D = material.get_shader_parameter("generated_map")
+	assert(generated.get_size() == Vector2(128,128))
+	var map_image := generated.get_image()
+	assert(absf(map_image.get_pixel(96,64).r - map_image.get_pixel(32,64).r) < 0.02, "Paired thresholds must support mirrored facial UVs")
+	assert(map_image.get_pixel(96,64).r > map_image.get_pixel(64,64).r + 0.1)
+	renderer.set_enhanced(false)
+	assert(not material.get_shader_parameter("enhanced") and original.albedo_color == Color.WHITE)
+	var source := Image.create(8,8,false,Image.FORMAT_RGBA8)
+	source.fill(Color(0.2,0.4,0.6,0.8))
+	assert(source.save_png("user://external_sdf.png") == OK)
+	assert(not renderer.import_custom_map("missing", "face_sdf", "user://external_sdf.png"))
+	assert(not renderer.import_custom_map("face", "script", "user://external_sdf.png"))
+	assert(renderer.import_custom_map("face", "face_sdf", "user://external_sdf.png"))
+	assert(material.get_shader_parameter("has_face_sdf"))
+	var cached := str(renderer.custom_maps.face.face_sdf.path)
+	assert(cached.begins_with("user://render_maps/imported/") and FileAccess.file_exists(cached))
+	assert(DirAccess.rename_absolute("user://external_sdf.png", "user://external_sdf_moved.png") == OK)
+	var restored := HonkaiMMDMaterials.new()
+	restored.apply(model, metadata)
+	assert(instance.get_active_material(0).get_shader_parameter("has_face_sdf"), "Custom maps must survive moving the original external file")
+	assert(restored.remove_custom_map("face", "face_sdf"))
+	assert(not instance.get_active_material(0).get_shader_parameter("has_face_sdf"))
+	var config := FileAccess.open(restored._maps_path, FileAccess.WRITE)
+	config.store_string('{"face":42}')
+	config.close()
+	restored.apply(model, metadata)
+	assert(not instance.get_active_material(0).get_shader_parameter("has_face_sdf"), "Malformed material settings must fall back safely")
+	model.free()
+	print("RENDER_ENHANCEMENTS_PASS lazy generation, angular map, original fallback, map validation, portable copy, restore/removal and malformed settings")
+	quit()

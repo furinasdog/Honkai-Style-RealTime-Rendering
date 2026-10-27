@@ -55,6 +55,13 @@ var _ui_scale := 1.0
 var _preferences_ready: bool = false
 var shadows_enabled := true
 var shadows_toggle: CheckButton
+var enhanced := true
+var eye_transparency := false
+var eye_transparency_strength := 0.3
+var enhanced_toggle: CheckButton
+var eye_transparency_toggle: CheckButton
+var eye_strength_slider: HSlider
+var texture_panel
 var _raw_capture_frame := {}
 var _mapped_capture_frame := {}
 
@@ -268,6 +275,32 @@ func _build_ui() -> void:
 			cloth_setup.set_body_collision_assistance(enabled)
 		_save_preferences())
 	model.add_child(body_collision_toggle)
+	enhanced_toggle = CheckButton.new()
+	enhanced_toggle.text = "增强表现"
+	enhanced_toggle.tooltip_text = "使用几何生成的阴影／高光辅助图及手动增强贴图；关闭后保留原始贴图。"
+	enhanced_toggle.button_pressed = enhanced
+	enhanced_toggle.toggled.connect(func(value: bool):
+		enhanced = value
+		material_setup.set_enhanced(value)
+		_save_preferences())
+	model.add_child(enhanced_toggle)
+	eye_transparency_toggle = CheckButton.new()
+	eye_transparency_toggle.text = "刘海眼透"
+	eye_transparency_toggle.tooltip_text = "仅在头发遮挡眉眼且接近正面时混回眼部细节。"
+	eye_transparency_toggle.toggled.connect(func(value: bool):
+		eye_transparency = value
+		material_setup.set_eye_transparency(value, eye_transparency_strength)
+		_save_preferences())
+	model.add_child(eye_transparency_toggle)
+	eye_strength_slider = _slider(model, "眼透强度", 0.0, 1.0, eye_transparency_strength, func(value: float):
+		eye_transparency_strength = value
+		material_setup.set_eye_transparency(eye_transparency, value)
+		_save_preferences())
+	texture_panel = preload("res://scripts/model_textures_panel.gd").new()
+	add_child(texture_panel)
+	_button(model, "增强贴图…", func():
+		texture_panel.set_renderer(material_setup)
+		texture_panel.popup_centered())
 
 	var graphics := _menu_page("画面", theme)
 	_button(graphics, "相机与抗锯齿…", func(): app_settings.popup_section(0))
@@ -347,7 +380,7 @@ func _panel_style() -> StyleBoxFlat:
 func _menu_page(section: String, theme: Theme) -> VBoxContainer:
 	var window := Window.new()
 	window.title = section
-	window.size = {"模型": Vector2i(560, 390), "画面": Vector2i(590, 400), "场景": Vector2i(590, 620), "应用": Vector2i(540, 390)}[section]
+	window.size = {"模型": Vector2i(560, 580), "画面": Vector2i(590, 400), "场景": Vector2i(590, 620), "应用": Vector2i(540, 390)}[section]
 	window.min_size = Vector2i(420, 260)
 	window.visible = false
 	window.transient = true
@@ -399,6 +432,7 @@ func _set_ui_scale(value: float) -> void:
 	video_output.content_scale_factor = _ui_scale
 	capture_preview.content_scale_factor = _ui_scale
 	calibration_panel.content_scale_factor = _ui_scale
+	texture_panel.content_scale_factor = _ui_scale
 	for dialog: Window in [archive_dialog, scene_dialog, model_dialog]:
 		dialog.content_scale_factor = _ui_scale
 	var selector: OptionButton = menu_windows["应用"].get_meta("scale_select")
@@ -533,6 +567,12 @@ func _unload_model() -> void:
 		cloth_setup.dispose()
 	cloth_setup = null
 	actor.clear_model()
+	var pmx_colors: bool = material_setup.use_pmx_outline_colors
+	material_setup = MarchMaterials.new()
+	material_setup.set_pmx_outline_colors(pmx_colors)
+	material_setup.enhanced = enhanced
+	if texture_panel != null:
+		texture_panel.set_renderer(material_setup)
 	retarget = preload("res://scripts/mocap_retarget.gd").new()
 	retarget.set_mode(app_settings.tracking_mode)
 	retarget.set_hand_gesture_assistance(app_settings.hand_gesture_assistance)
@@ -554,6 +594,9 @@ func _install_candidate(candidate: Node3D, metadata: Dictionary, metadata_path: 
 		notice.text = "该模型没有可映射的标准上肢或头部骨骼，当前角色已保留。"
 		return false
 	var next_materials := MarchMaterials.new()
+	next_materials.enhanced = enhanced
+	next_materials.eye_transparency = eye_transparency
+	next_materials.eye_transparency_strength = eye_transparency_strength
 	next_materials.apply(candidate, metadata)
 	next_materials.set_shadow_threshold(shadow_threshold)
 	next_materials.set_shadows_enabled(shadows_enabled)
@@ -573,6 +616,8 @@ func _install_candidate(candidate: Node3D, metadata: Dictionary, metadata_path: 
 	actor.commit_model(candidate)
 	retarget = next_retarget
 	material_setup = next_materials
+	if texture_panel != null:
+		texture_panel.set_renderer(material_setup)
 	cloth_setup = next_cloth
 	mapping_settings.reset_filters()
 	_model_metadata_path = metadata_path
@@ -630,6 +675,9 @@ func _save_preferences() -> void:
 	config.set_value("stage", "transparent", stage.transparent)
 	config.set_value("render", "pmx_outline_colors", material_setup.use_pmx_outline_colors)
 	config.set_value("render", "shadows_enabled", shadows_enabled)
+	config.set_value("render", "enhanced", enhanced)
+	config.set_value("render", "eye_transparency", eye_transparency)
+	config.set_value("render", "eye_strength", eye_transparency_strength)
 	config.set_value("physics", "body_collision_assistance", body_collision_assistance)
 	config.save("user://showcase.cfg")
 
@@ -640,6 +688,12 @@ func _restore_preferences() -> void:
 		return
 	_set_ui_scale(float(config.get_value("application", "ui_scale", 1.0)))
 	_set_shadows_enabled(bool(config.get_value("render", "shadows_enabled", true)))
+	enhanced = bool(config.get_value("render", "enhanced", true))
+	eye_transparency = bool(config.get_value("render", "eye_transparency", false))
+	eye_transparency_strength = clampf(float(config.get_value("render", "eye_strength", 0.3)), 0.0, 1.0)
+	enhanced_toggle.set_pressed_no_signal(enhanced)
+	eye_transparency_toggle.set_pressed_no_signal(eye_transparency)
+	eye_strength_slider.set_value_no_signal(eye_transparency_strength)
 	var color = config.get_value("stage", "color", stage.background_color)
 	if color is Color:
 		stage.set_background_color(color)

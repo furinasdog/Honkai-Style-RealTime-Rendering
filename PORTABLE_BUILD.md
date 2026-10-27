@@ -17,6 +17,8 @@ ctest --test-dir build/native -C Release --output-on-failure
 
 发行包包含姿态 Full、Lite 两种 Tasks 模型，以及既有手部和面部模型；默认姿态模型为 Full。下载准备及导出均依据 `mocap/models/manifest.json` 校验 SHA-256，Heavy 不进入发行包。
 
+增强阴影／高光辅助图在用户导入模型后本地生成，额外贴图也复制到该用户缓存；这些图片、模型专属配置和相机诊断不进入源码或发行包。打包同时提供 `docs/rendering.md`，说明贴图通道、UV 约定及近似限制。眼透使用当前固定 Godot 4.7 的模板通道，未验证其他 Godot 版本或移动端渲染器。
+
 `-StageOnly` 只生成并校验隔离导出副本。副本仅包括通用脚本、场景、着色器、MMD 子模块的 runtime/render、图标、原生库和 Tasks 模型，不复制 `assets/`、测试、参考图片或开发插件。编辑器与模板复制到 `build/editor_runtime/`，不修改系统安装目录。
 
 导出副本和发行包不包含 Blender、mmd_tools 或 Python worker。`tools/import_pmx_blender.py` 仅保留为受控开发参考脚本。构建时若在旧发行目录发现转换运行时，会将它们移至工作区 `build/retired_conversion_runtime_时间戳/` 留存；包过滤仍拒绝这些组件。

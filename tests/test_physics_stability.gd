@@ -43,6 +43,9 @@ func _real_model(path: String) -> Dictionary:
 	var helper = load("res://scripts/actor.gd").new()
 	helper._prepare_pose(model, false)
 	helper.free()
+	var renderer := MarchMaterials.new()
+	renderer.enhanced = false
+	renderer.apply(model, metadata)
 	var setup = PHYSICS.new()
 	assert(setup.apply(rig, model, metadata.physics))
 	var head := rig.find_bone("頭")

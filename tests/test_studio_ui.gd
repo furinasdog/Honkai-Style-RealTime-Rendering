@@ -17,6 +17,14 @@ func _run() -> void:
 	assert(not root.borderless, "Transparency must retain the system title bar")
 	assert(scene.menu_windows.size() == 4)
 	assert(scene.menu_windows["场景"].is_ancestor_of(scene.light_slider), "Lighting controls belong to the scene page")
+	assert(scene.enhanced and not scene.eye_transparency)
+	assert(scene.menu_windows["模型"].is_ancestor_of(scene.enhanced_toggle))
+	scene.enhanced_toggle.button_pressed = false
+	assert(not scene.material_setup.enhanced)
+	scene.eye_transparency_toggle.button_pressed = true
+	assert(scene.material_setup.eye_transparency)
+	scene.enhanced_toggle.button_pressed = true
+	scene.eye_transparency_toggle.button_pressed = false
 	scene.shadows_toggle.button_pressed = false
 	assert(not scene.shadows_enabled and not scene.key_light.shadow_enabled and not scene.material_setup.shadows_enabled)
 	var config := ConfigFile.new()
@@ -69,6 +77,12 @@ func _run() -> void:
 			assert(scene.calibration_panel.get_texture().get_image().save_png("res://outputs/ui_calibration_%d.png" % (scale * 100)) == OK)
 			assert(scene.calibration_panel._views.columns == (2 if scale == 1.0 else 1))
 			scene.calibration_panel.hide()
+			scene.texture_panel.set_renderer(scene.material_setup)
+			scene.texture_panel.popup_centered()
+			await process_frame
+			await RenderingServer.frame_post_draw
+			assert(scene.texture_panel.get_texture().get_image().save_png("res://outputs/ui_textures_%d.png" % (scale * 100)) == OK)
+			scene.texture_panel.hide()
 			await process_frame
 			await RenderingServer.frame_post_draw
 			assert(root.get_texture().get_image().save_png("res://outputs/ui_navigation_%d.png" % (scale * 100)) == OK)

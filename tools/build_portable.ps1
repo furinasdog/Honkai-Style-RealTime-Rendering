@@ -237,6 +237,8 @@ function Copy-Notices {
         }
     }
     Copy-Item -LiteralPath (Join-Path $script:ProjectRoot 'README.md') -Destination (Join-Path $script:DistributionRoot 'README.md') -Force
+    [void][IO.Directory]::CreateDirectory((Join-Path $script:DistributionRoot 'docs'))
+    Copy-Item -LiteralPath (Join-Path $script:ProjectRoot 'docs/rendering.md') -Destination (Join-Path $script:DistributionRoot 'docs/rendering.md') -Force
     foreach ($name in @('LICENSE', 'LICENSE.md', 'LICENSE.txt', 'NOTICE', 'NOTICE.md')) {
         $source = Join-Path $script:ProjectRoot $name
         if (Test-Path -LiteralPath $source -PathType Leaf) { Copy-Item -LiteralPath $source -Destination (Join-Path $script:DistributionRoot $name) -Force }

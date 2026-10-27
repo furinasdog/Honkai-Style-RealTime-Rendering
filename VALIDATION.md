@@ -1,4 +1,54 @@
-# Validation — 2026-10-26
+# Validation
+
+## 0.1.5 supplement
+
+Windows x64, Godot 4.7.2, RTX 5070 Laptop, Forward+ / D3D12.
+No real camera or OBS application was opened.
+
+Passed:
+
+- GPU eye-overlay test: disabled/enabled, visible-hair stencil, opaque foreground
+  occlusion, and head-facing gate without relying on back-face culling.
+- GPU user-map test: black/white SDF changes rendered face pixels, imported Ramp
+  produces its source color, and disabling enhancement restores source color.
+- Generated face-map GPU test: mirrored UV halves exchange light/dark under
+  opposite side lights, both brighten from the front and darken from behind.
+  Light interpolation is disabled and stable frames are sampled in this test.
+- Lazy geometric map generation, mirrored face UV thresholds, cached image
+  assignment, moved external source, removal and malformed-setting fallback.
+- Face-opening outline mask preserves outer silhouette, source alpha edge
+  weights, vertices and indices. Private close-ups were inspected with closed,
+  partial and open mouth morphs; the nose and its cartoon mark remain visible.
+- Cloth rest-contact exclusion, thin/zero-thickness box separation, hair
+  assistance toggling, original collision/reset tests and import rollback.
+- Native model physics stability on Hu Tao, Phainon, March 7th and Cyrene.
+  Full-body/physics replay on Hu Tao, Phainon and Cyrene covers crouch, turn,
+  leg movement and mode/recenter resets. Ongoing root offsets are compared with
+  each model's static support calibration; Hu Tao's 3.142 mm standing offset
+  was identical with original and updated physics, rather than a new drift.
+- Light UI at 100/150/200 percent, including the auxiliary texture window.
+- The exported official-template executable also loads a private model with
+  enhancement and eye overlay enabled, creates its helper maps and renders
+  without script or shader errors in an isolated profile.
+- 1080p transparent Spout sender output with a real local character:
+  60.0 measured FPS for a 60 FPS target in this local run. This is not OBS
+  receiver verification or a promise for all hardware/models.
+
+Private same-motion GPU probes:
+
+| Measurement | Before | Updated |
+|---|---:|---:|
+| Hu Tao sampled maximum solid penetration | 44.51 mm | 0.00 mm |
+| Hu Tao thin-mesh crossing-face observations across 25 samples | 682 | 106 |
+| Phainon largest settled cape-bone displacement from rest | 646.14 mm | 135.59 mm |
+
+The stricter zero-mesh-crossing probe remains **red**: the updated run includes
+42 cloth and 64 hat/strap face-crossing observations. Zero sampled solid depth
+does not imply zero thin-sheet intersection. It is not counted as a passing
+zero-clipping test. Rigid proxy contacts and ordinary linear skinning still
+have limits; the automatic lighting helpers are not official artist maps.
+
+## Earlier baseline — 2026-10-26
 
 Environment: Windows x64, Godot 4.7.2, Visual Studio 2026, NVIDIA RTX 5070 Laptop.
 No live webcam was opened during this validation. Private model assets, reference

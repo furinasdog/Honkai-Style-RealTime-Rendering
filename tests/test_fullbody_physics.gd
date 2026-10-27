@@ -19,6 +19,8 @@ func _run() -> void:
 		if not motion is Dictionary or motion.is_empty():
 			quit(1)
 			return
+		# Recenter resumes live support solving, so compare with this model's standing shoe calibration.
+		assert(absf(float(motion.residual_root_offset) - float(baseline.residual_root_offset)) < 0.003, "Physics introduced root drift beyond the standing support offset")
 		print("FULLBODY_PHYSICS_PASS ", JSON.stringify({"model": path, "baseline": baseline, "motion": motion}))
 	quit(0)
 
@@ -36,6 +38,9 @@ func _replay(path: String, animated_replay: bool) -> Dictionary:
 	var rig := model.get_node("MMDSkeleton") as Skeleton3D
 	var retarget = preload("res://scripts/mocap_retarget.gd").new()
 	assert(retarget.apply(rig, model))
+	var renderer := MarchMaterials.new()
+	renderer.enhanced = false
+	renderer.apply(model, loaded.metadata)
 	var physics := preload("res://scripts/mmd_physics.gd").new()
 	assert(physics.apply(rig, model, metadata.physics))
 	assert(retarget.set_mode("full_body"))
@@ -175,7 +180,8 @@ func _replay(path: String, animated_replay: bool) -> Dictionary:
 	assert(maximum_static_error < 0.02 and maximum_static_angle < 0.02, "Kinematic rigid bodies must follow the animated root/legs")
 	# Bound existing solver residuals; free helper joints' raw anchor gap is not an attachment error.
 	assert(maximum_dynamic_offset < 1.5 and maximum_joint_excess < 0.05, "A dynamic chain exceeded the bounded authored-limit regression tolerance")
-	assert(rig.get_bone_pose_position(root_bone).distance_to(root_neutral) < 0.003)
+	assert(retarget.set_mode("vtuber"))
+	assert(rig.get_bone_pose_position(root_bone).distance_to(root_neutral) < 0.00001, "The final mode reset must restore the root immediately")
 	physics.dispose()
 	model.queue_free()
 	await process_frame
