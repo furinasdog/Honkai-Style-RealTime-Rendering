@@ -5,6 +5,7 @@ const SIDES := {"Left": "左", "Right": "右"}
 const FINGERS := [["親指０", "親指１", "親指２"], ["人指１", "人指２", "人指３"], ["中指１", "中指２", "中指３"], ["薬指１", "薬指２", "薬指３"], ["小指１", "小指２", "小指３"]]
 const MORPHS := ["まばたき", "ウィンク", "ウィンク右", "あ", "い", "う", "口角上げ", "口角下げ", "上", "怒り", "困る"]
 const TRACKING_TIMEOUT := 0.4
+const LIMB_HOLD_SECONDS := 0.15
 const INVALID_FRAME := Basis(Vector3.ZERO, Vector3.ZERO, Vector3.ZERO)
 const CENTER_ALIASES := {
 	"上半身": ["spine", "Spine", "mixamorig:Spine", "J_Bip_C_Spine"],
@@ -54,6 +55,7 @@ var _body_delta := Basis.IDENTITY
 var _gesture_assist: RefCounted = preload("res://scripts/hand_gesture_assistance.gd").new()
 var _live_finger_bases := {}
 var _gesture_filter_bones := {}
+var _held_limb_targets := {}
 
 
 func set_hand_gesture_assistance(enabled: bool) -> void:
@@ -62,6 +64,11 @@ func set_hand_gesture_assistance(enabled: bool) -> void:
 	var affected := _gesture_filter_bones.keys()
 	hand_gesture_assistance = enabled
 	_gesture_assist.reset()
+	for index: int in _held_limb_targets.keys():
+		if _bone_channels.get(index, "").ends_with("_hand"):
+			if not _global_targets.has(index):
+				_targets[index] = _neutral_local[index]
+			_held_limb_targets.erase(index)
 	if not enabled:
 		_clear_gesture_curve_filters()
 	if not enabled and not affected.is_empty() and skeleton != null and age_seconds <= TRACKING_TIMEOUT:
@@ -219,8 +226,9 @@ func ingest(frame: Dictionary) -> bool:
 			continue
 		if used_sides.has(side) or not capabilities.get(side_id + "_hand", false) or not _channel_enabled(side_id + "_hand"):
 			continue
+		if not _apply_hand(SIDES[side], hand.world, hand.image):
+			continue
 		used_sides[side] = true
-		_apply_hand(SIDES[side], hand.world, hand.image)
 		tracking.hands += 1
 		tracking.left_hand = tracking.left_hand or side == "Left"
 		tracking.right_hand = tracking.right_hand or side == "Right"
@@ -233,6 +241,8 @@ func ingest(frame: Dictionary) -> bool:
 	if face is Dictionary:
 		_apply_face(face)
 		tracking.face = true
+	# Resolve held parents before converting world-space wrist and finger targets.
+	_hold_missing_limbs()
 	_resolved_bases.clear()
 	for index: int in _global_targets:
 		var parent := skeleton.get_bone_parent(index)
@@ -241,6 +251,8 @@ func ingest(frame: Dictionary) -> bool:
 	for index: int in _bone_channels:
 		if _global_targets.has(index):
 			_targets[index] = _map_joint_rotation(index, _targets[index], _bone_channels[index])
+			_held_limb_targets[index] = {"rotation": _targets[index], "age": 0.0}
+	_hold_missing_limbs()
 	if mode == "full_body":
 		_fullbody.capture_targets(_targets)
 		_targets.merge(_fullbody.fallback_targets(), true)
@@ -251,6 +263,8 @@ func update(delta: float) -> void:
 	if skeleton == null or not is_finite(delta) or delta < 0.0:
 		return
 	age_seconds += delta
+	for state: Dictionary in _held_limb_targets.values():
+		state.age += delta
 	if mode == "full_body":
 		_fullbody.advance(delta)
 		tracking.merge(_fullbody.tracking(), true)
@@ -262,6 +276,7 @@ func update(delta: float) -> void:
 		tracking.merge({"lower_body": false, "left_leg": false, "right_leg": false})
 	if mode == "full_body":
 		_targets.merge(_fullbody.fallback_targets(), true)
+	_hold_missing_limbs()
 	var weight := 1.0 - exp(-clampf(smoothing_speed, 1.0, 40.0) * minf(delta, 0.1))
 	for index: int in _targets:
 		var current := skeleton.get_bone_pose_rotation(index)
@@ -281,6 +296,7 @@ func reset() -> void:
 	_last_sequence = -1
 	_last_timestamp_ms = -1.0
 	_joint_axes.clear()
+	_held_limb_targets.clear()
 	_gesture_assist.reset()
 	_gesture_filter_bones.clear()
 	_body_delta = Basis.IDENTITY
@@ -299,6 +315,19 @@ func reset() -> void:
 		skeleton.set_bone_pose_position(_fullbody.root_index, _fullbody.root_position)
 	for binding in _morph_bindings:
 		binding.mesh.set_blend_shape_value(binding.index, binding.neutral)
+
+
+func _hold_missing_limbs() -> void:
+	for index: int in _held_limb_targets.keys():
+		if not _channel_enabled(_bone_channels[index]):
+			_targets[index] = _neutral_local[index]
+			_held_limb_targets.erase(index)
+		elif not _global_targets.has(index):
+			var state: Dictionary = _held_limb_targets[index]
+			# Brief occlusion must not restart a return-to-rest on every missing packet.
+			_targets[index] = state.rotation if state.age <= LIMB_HOLD_SECONDS else _neutral_local[index]
+			if state.age > LIMB_HOLD_SECONDS:
+				_held_limb_targets.erase(index)
 
 
 func _set_neutral_targets() -> void:
@@ -381,24 +410,20 @@ func _arm_delta(side: String, upper: Vector3, lower: Vector3, body_delta: Basis)
 	return Basis(swing.get_rotation_quaternion().slerp(plane_delta.get_rotation_quaternion(), weight))
 
 
-func _apply_hand(side: String, points: Array, image: Array) -> void:
+func _apply_hand(side: String, points: Array, image: Array) -> bool:
 	var wrist: int = _indices[side + "手首"]
 	var middle: int = _indices[side + "中指１"]
 	var index: int = _indices[side + "人指１"]
 	var little: int = _indices[side + "小指１"]
 	var neutral_frame := _frame(_neutral_global[index].origin - _neutral_global[little].origin, _neutral_global[middle].origin - _neutral_global[wrist].origin)
 	var measured_frame := _frame(_point(points[5]) - _point(points[17]), _point(points[9]) - _point(points[0]))
-	var hand_delta := Basis.IDENTITY
-	if neutral_frame != INVALID_FRAME and measured_frame != INVALID_FRAME:
-		hand_delta = measured_frame * neutral_frame.inverse()
-		_global_targets[wrist] = hand_delta * _neutral_global[wrist].basis.orthonormalized()
+	if neutral_frame == INVALID_FRAME or measured_frame == INVALID_FRAME:
+		return false
+	var hand_delta := measured_frame * neutral_frame.inverse()
+	_global_targets[wrist] = hand_delta * _neutral_global[wrist].basis.orthonormalized()
 	var assistance := {"gesture": "", "weight": 0.0}
 	if hand_gesture_assistance:
-		if neutral_frame != INVALID_FRAME and measured_frame != INVALID_FRAME:
-			assistance = _gesture_assist.sample(side, points, image, _frame_delta)
-		else:
-			_gesture_assist.reset_side(side)
-			_clear_gesture_curve_filters("left_hand" if side == "左" else "right_hand")
+		assistance = _gesture_assist.sample(side, points, image, _frame_delta)
 	var palm_normal := neutral_frame.z * (1.0 if side == "左" else -1.0)
 	var thumb: int = _indices.get(side + FINGERS[0][0], -1)
 	var toward_palm: Vector3 = _neutral_global[middle].origin - _neutral_global[thumb].origin if thumb >= 0 else neutral_frame.y
@@ -424,6 +449,7 @@ func _apply_hand(side: String, points: Array, image: Array) -> void:
 				var rotation: Basis = _gesture_assist.preset_rotation(assistance.gesture, finger, segment, _neutral_direction(base, next), palm_normal, toward_palm)
 				var preset: Basis = hand_delta * rotation * _neutral_global[bone].basis.orthonormalized()
 				_global_targets[bone] = Basis(_global_targets[bone].get_rotation_quaternion().slerp(preset.get_rotation_quaternion(), assistance.weight))
+	return true
 
 
 func _apply_face(face: Dictionary) -> void:
@@ -431,10 +457,11 @@ func _apply_face(face: Dictionary) -> void:
 	var baseline: float = _morph_targets.get("まばたき", 0.0)
 	var left_blink := _mapped("left_eye", _score(values, "eyeBlinkLeft"))
 	var right_blink := _mapped("right_eye", _score(values, "eyeBlinkRight"))
-	_morph_targets["ウィンク"] = left_blink * (1.0 - baseline)
-	_morph_targets["ウィンク右"] = right_blink * (1.0 - baseline)
-	if not _has_morph("ウィンク") or not _has_morph("ウィンク右"):
+	if _has_morph("まばたき") and (not _has_morph("ウィンク") or not _has_morph("ウィンク右")):
 		_morph_targets["まばたき"] = baseline + (left_blink + right_blink) * 0.5 * (1.0 - baseline)
+	else:
+		_morph_targets["ウィンク"] = left_blink * (1.0 - baseline)
+		_morph_targets["ウィンク右"] = right_blink * (1.0 - baseline)
 	_morph_targets["あ"] = _mapped("jaw_open", _score(values, "jawOpen")) * 0.9
 	_morph_targets["い"] = _mapped("mouth_wide", maxf(_score(values, "mouthStretchLeft"), _score(values, "mouthStretchRight"))) * 0.5
 	_morph_targets["う"] = _mapped("mouth_pucker", maxf(_score(values, "mouthPucker"), _score(values, "mouthFunnel"))) * 0.8

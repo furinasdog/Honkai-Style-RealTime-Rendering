@@ -51,7 +51,9 @@ func _ready() -> void:
 	_remove.text = "移除"
 	_remove.pressed.connect(func():
 		if not _ids.is_empty() and not _role_ids.is_empty():
-			_renderer.remove_custom_map(_ids[_materials.selected], _role_ids[_roles.selected])
+			if not _renderer.remove_custom_map(_ids[_materials.selected], _role_ids[_roles.selected]):
+				_status.text = _renderer.map_error
+				return
 			_refresh_preview())
 	actions.add_child(_remove)
 	_status = Label.new()

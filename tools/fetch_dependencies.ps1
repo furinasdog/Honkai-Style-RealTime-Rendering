@@ -1,4 +1,6 @@
 #requires -Version 7.0
+param([switch]$TestFixtures)
+
 $ErrorActionPreference = 'Stop'
 $projectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $downloads = Join-Path $projectRoot 'build/downloads'
@@ -48,5 +50,13 @@ Assert-FileHash $library $seven.library.sha256
 $models = Get-Content (Join-Path $projectRoot 'mocap/models/manifest.json') -Raw | ConvertFrom-Json
 foreach ($model in $models.PSObject.Properties) {
     Get-PinnedFile $model.Value.url (Join-Path $projectRoot ('mocap/models/' + $model.Name)) $model.Value.sha256
+}
+if ($TestFixtures) {
+    $fixtureRoot = Join-Path $projectRoot 'mocap/test_data'
+    [void][IO.Directory]::CreateDirectory($fixtureRoot)
+    $fixtures = Get-Content (Join-Path $projectRoot 'tests/fixtures/mediapipe.json') -Raw | ConvertFrom-Json
+    foreach ($fixture in $fixtures.PSObject.Properties) {
+        Get-PinnedFile $fixture.Value.url (Join-Path $fixtureRoot $fixture.Name) $fixture.Value.sha256
+    }
 }
 & (Join-Path $PSScriptRoot 'prepare_native.ps1')

@@ -35,9 +35,20 @@ func _run() -> void:
 	var image: Image = panel._viewport.get_texture().get_image()
 	assert(image.get_size() == Vector2i(1920, 1080) and image.get_pixel(30, 30).a < 0.01)
 	assert(image.save_png("res://outputs/model_output_1080.png") == OK)
+	var process_ms := Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
+	var physics_ms := Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	var active_bridge = panel._bridge
+	var before_reload: int = active_bridge.get_frames()
+	var reload_started := Time.get_ticks_usec()
+	assert(scene._adopt_model(metadata.model_file, metadata, args[0], false))
+	var reload_ms := (Time.get_ticks_usec() - reload_started) / 1000.0
+	await create_timer(0.7).timeout
+	assert(panel._bridge == active_bridge and active_bridge.enabled and active_bridge.get_frames() > before_reload, "Replacing a model must not stop the active Spout sender")
 	var report := {"width": 1920, "height": 1080, "target_fps": 60, "measured_fps": fps, "bodies": scene.cloth_setup.counts.bodies, "joints": scene.cloth_setup.counts.joints, "camera_opened": false, "model_distributed": false}
-	report["process_ms"] = Performance.get_monitor(Performance.TIME_PROCESS) * 1000.0
-	report["physics_ms"] = Performance.get_monitor(Performance.TIME_PHYSICS_PROCESS) * 1000.0
+	report["process_ms"] = process_ms
+	report["physics_ms"] = physics_ms
+	report["model_reload_ms"] = reload_ms
+	report["active_model_replacement"] = true
 	var file := FileAccess.open("res://outputs/model_output_validation.json", FileAccess.WRITE)
 	file.store_string(JSON.stringify(report, "\t"))
 	panel.stop_output()

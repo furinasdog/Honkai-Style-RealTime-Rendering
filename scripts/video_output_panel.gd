@@ -35,6 +35,8 @@ func setup(scene: Node3D) -> void:
 	_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
 	scene.add_child(_viewport)
 	_camera = Camera3D.new()
+	# The source transform is already interpolated; do not interpolate its copy again.
+	_camera.physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	_camera.cull_mask = 1
 	_camera.environment = scene.get_node("Environment").environment.duplicate()
 	_camera.environment.background_mode = Environment.BG_CLEAR_COLOR

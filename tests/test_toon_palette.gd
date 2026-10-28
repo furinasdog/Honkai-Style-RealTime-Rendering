@@ -145,6 +145,7 @@ func _run() -> void:
 	_setup.set_shadows_enabled(true)
 	# A grazing receiver at N.L=.4 with 60% visibility must cross the .3 band together.
 	var grazing := _patch(Vector3.ZERO, Vector3(sqrt(0.84), 0, 0.4), "cloth", Color.WHITE)
+	_setup.set_enhanced(false)
 	_light.rotation = Vector3.ZERO
 	var partial := Shader.new()
 	partial.code = Materials.TOON.code.replace("ATTENUATION", "0.6")
@@ -154,6 +155,7 @@ func _run() -> void:
 	_save(combined, "combined")
 	grazing.free()
 	var receiver := _patch(Vector3.ZERO, Vector3.BACK, "cloth", Color.WHITE)
+	_setup.set_enhanced(false)
 	receiver.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	_light.look_at_from_position(Vector3(1, 0, 1) * 8.0, Vector3.ZERO)
 	_light.shadow_enabled = true
@@ -174,6 +176,12 @@ func _run() -> void:
 		for x in range(252, 261, 4):
 			_assert_color(occluded.get_pixel(x, y), SHADOWS[0], "Flat shadow interior")
 	_save(occluded, "occlusion")
+	_setup.set_enhanced(true)
+	var enhanced_receiver := await _image()
+	_assert_color(enhanced_receiver.get_pixel(256, 192), Color.WHITE, "Enhanced cloth must avoid hard self-cast patches")
+	_setup.set_enhanced(false)
+	var basic_receiver := await _image()
+	_assert_color(basic_receiver.get_pixel(256, 192), SHADOWS[0], "Basic rendering must restore authored cast-shadow reception")
 	_setup.set_shadows_enabled(false)
 	var cast_disabled := await _image()
 	_assert_color(cast_disabled.get_pixel(256, 192), Color.WHITE, "Full-bright toggle must bypass real cast shadows")

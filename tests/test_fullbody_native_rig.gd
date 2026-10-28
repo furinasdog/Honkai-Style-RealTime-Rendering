@@ -28,13 +28,11 @@ func _exercise(path: String) -> bool:
 	var rig := model.get_node("MMDSkeleton") as Skeleton3D
 	var setup = preload("res://scripts/mocap_retarget.gd").new()
 	assert(setup.apply(rig, model) and setup.set_mode("full_body"))
-	assert(setup._fullbody.chains.size() == 2)
-	for chain: Dictionary in setup._fullbody.chains:
-		assert(rig.get_bone_name(chain.upper).ends_with("足D"), "Real PMX fixtures must drive their weighted D chains")
+	assert(setup._fullbody.has_side("left") and setup._fullbody.has_side("right"))
 	var packet := HELPERS.standing(rig)
 	assert(HELPERS.settle(setup, packet))
-	var left_samples := _samples(model, rig, "左")
-	var right_samples := _samples(model, rig, "右")
+	var left_samples := _samples(model, rig, setup._fullbody, "left")
+	var right_samples := _samples(model, rig, setup._fullbody, "right")
 	assert(left_samples.size() >= 20 and right_samples.size() >= 20)
 	var neutral_left := _skin(rig, left_samples)
 	var neutral_right := _skin(rig, right_samples)
@@ -67,16 +65,17 @@ func _exercise(path: String) -> bool:
 	assert(restore_motion < 0.025)
 	print("FULLBODY_NATIVE_RIG_PASS ", JSON.stringify({"model": path, "left_skin_samples": left_samples.size(), "right_skin_samples": right_samples.size(),
 		"left_lift_skin_motion": left_motion, "planted_right_skin_motion": right_motion, "vtuber_restore_motion": restore_motion,
-		"crouch_root_y": root_offset.y, "left_sole_y": setup._fullbody.chains[0].sole}))
+		"crouch_root_y": root_offset.y, "left_sole_y": setup._fullbody.chains[0].sole, "weighted_chains": setup._fullbody.chains.size()}))
 	model.free()
 	return true
 
 
-func _samples(model: Node3D, rig: Skeleton3D, side: String) -> Array[Dictionary]:
+func _samples(model: Node3D, rig: Skeleton3D, solver: RefCounted, side: String) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
 	var wanted: Array[int] = []
-	for part in ["足D", "ひざD", "足首D", "足先EX"]:
-		wanted.append(rig.find_bone(side + part))
+	for chain: Dictionary in solver.chains:
+		if chain.side == side:
+			wanted.append_array([chain.upper, chain.knee, chain.ankle, chain.toe])
 	for node in model.find_children("*", "MeshInstance3D", true, false):
 		var mesh := node as MeshInstance3D
 		if mesh.skin == null:

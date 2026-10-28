@@ -45,6 +45,23 @@ func _run() -> void:
 	assert(not renderer.import_custom_map("face", "script", "user://external_sdf.png"))
 	assert(renderer.import_custom_map("face", "face_sdf", "user://external_sdf.png"))
 	assert(material.get_shader_parameter("has_face_sdf"))
+	var assignments := renderer.custom_maps.duplicate(true)
+	var saved_path: String = renderer._maps_path
+	var blocked := FileAccess.open("user://blocked_settings_parent", FileAccess.WRITE)
+	blocked.store_string("not a directory")
+	blocked.close()
+	renderer._maps_path = "user://blocked_settings_parent/maps.json"
+	assert(not renderer.remove_custom_map("face", "face_sdf"))
+	assert(renderer.custom_maps == assignments, "Failed persistence must retain the active texture assignment")
+	assert(material.get_shader_parameter("has_face_sdf"))
+	assert(not renderer.import_custom_map("face", "face_map", "user://external_sdf.png"))
+	assert(renderer.custom_maps == assignments, "A failed import must not replace existing assignments")
+	renderer._maps_path = saved_path
+	var saved_contents := FileAccess.get_file_as_string(saved_path)
+	assert(DirAccess.make_dir_absolute(saved_path + ".tmp") == OK)
+	assert(not renderer.remove_custom_map("face", "face_sdf"))
+	assert(FileAccess.get_file_as_string(saved_path) == saved_contents, "A failed temporary write must preserve the previous JSON file")
+	assert(DirAccess.remove_absolute(saved_path + ".tmp") == OK)
 	var cached := str(renderer.custom_maps.face.face_sdf.path)
 	assert(cached.begins_with("user://render_maps/imported/") and FileAccess.file_exists(cached))
 	assert(DirAccess.rename_absolute("user://external_sdf.png", "user://external_sdf_moved.png") == OK)

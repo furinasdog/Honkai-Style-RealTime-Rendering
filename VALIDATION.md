@@ -1,5 +1,60 @@
 # Validation
 
+## 1.0.0
+
+Windows x64, Godot 4.7.2, RTX 5070 Laptop / D3D12. Checks use isolated user
+profiles. No real camera or OBS receiver is opened, and private model assets
+and diagnostics are excluded from the published source and package.
+
+Regression checks cover:
+
+- Transient arm/palm loss holds the last valid target for 150 ms, sustained
+  loss releases to neutral, reacquisition resumes, and disabling a channel or
+  resetting cannot retain the held pose.
+- Partial face rigs use a combined blink without also adding the remaining
+  unilateral blink. Degenerate palm frames are not reported as tracked.
+- Failed lighting-map writes/removals preserve both the previous in-memory
+  assignment and existing JSON. Successful writes replace a temporary file.
+- Full native inference → decode → camera correction → actual retarget replay
+  on 72 offline fixture frames, including horizontal mirrors and -35/0/+35
+  degree camera correction, followed by loss recovery. This checks numerical
+  integrity and integration, not webcam accuracy or a motion-capture FPS claim.
+- Hu Tao, Phainon, March 7th and Cyrene arm/finger and actual skinned-leg
+  regressions, including the three weighted leg chains in the Hu Tao fixture.
+  Full-body/physics replay retains the existing model-specific support offset.
+- Basic and enhanced toon palettes are checked separately: basic cloth retains
+  cast shadows; enhanced cloth omits hard self-cast patches. Both retain source
+  colors and the full-bright toggle. Face bands, manual/generated helper maps,
+  eye stencils, UI scaling and transparent output are covered by GPU tests.
+- Native parser CTest, archive path/collision/limit/cancellation checks, import
+  rollback, and filtered portable ZIP checksum verification.
+
+The final production scripts completed a 600-second D3D12 stress run with
+7 model installations and 11,239 native fixture-inference frames, minimized
+1080p transparent output, mode/gesture/enhancement/eye/shadow switches, finite
+bone transforms and stable scene-node counts on repeated visits to each model.
+The previous output-camera interpolation warning no longer appeared. A further
+120-second run replaced models 8 times while the same Spout sender stayed active.
+These deliberately synchronous inference probes are stability checks, not camera
+tracking-accuracy or representative rendering-throughput benchmarks.
+
+The ZIP was extracted into a new path containing Chinese characters and spaces.
+The official release executable passed empty-startup and private-model startup
+checks. An editor test host opened the executable's embedded PCK and its relocated
+native DLLs to exercise actual packed PMX, Full inference, enhancement and GPU
+transparent output; this is distinct from injecting tests into the release EXE.
+Fresh Hysilens/Cyrene ZIP imports also succeeded through these packed components
+and isolated caches, without relying on an existing user's imported model.
+
+The renderer preserved source colors and the nose in the inspected packed-output
+screenshot. This was a local visual check, not a new official-reference similarity
+score. Offline test images have an optional, checksum-pinned download manifest;
+they are not bundled in the release.
+
+The previous thin-sheet crossing limitation below remains unresolved. A 1.0
+version does not imply perfect monocular depth, official-renderer equivalence,
+universal PMX effect support, or zero mesh intersections.
+
 ## 0.1.5 supplement
 
 Windows x64, Godot 4.7.2, RTX 5070 Laptop, Forward+ / D3D12.
