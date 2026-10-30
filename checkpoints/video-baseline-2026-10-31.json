@@ -1,0 +1,15 @@
+{
+  "purpose": "User accepted tone baseline before unattended video-based shadow refinement",
+  "date": "2026-10-31 Asia/Shanghai",
+  "engine": "build/editor_runtime/godot.windows.opt.tools.64.exe",
+  "reference_video": "C:/Users/root/AppData/Local/Packages/Microsoft.ScreenSketch_8wekyb3d8bbwe/TempState/Recordings/20261030-1232-48.3574500.mp4",
+  "preview": "outputs/three_character_compare_20261030",
+  "pipeline_files": {
+    "plugins/honkai_mmd/render/outline.gdshader": "201d27bd08fd4e5f93c587f7f02f6bd5bd42fa751ae4eba78a67e3885dc696eb",
+    "plugins/honkai_mmd/render/toon.gdshader": "4bb2aa02c85b0e3e3e5d2d027cb5dacef3fae1c80dff169d7676b4c8f8b22920",
+    "plugins/honkai_mmd/render/materials.gd": "46d79517af162521fbe1d97a983e2254983ed774b29f329dedb355f22a3d5875",
+    "scripts/showcase.gd": "bbfdc8e25c03ef1b7fea8610f5e831cd6fe5746f86b2a6be6b682d92ca8ef97a",
+    "plugins/honkai_mmd/render/generated_maps.gd": "f47a1176bff4acb41d2876fb338096844f521c29f7e1c50abbda05d01245ff82",
+    "build/editor_runtime/godot.windows.opt.tools.64.exe": "12310c74bdda7dcd43f28e971f33047dcecadd436b68169d61ce41009006df38"
+  }
+}

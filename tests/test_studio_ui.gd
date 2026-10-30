@@ -10,6 +10,7 @@ func _run() -> void:
 	var scene = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
 	await process_frame
+	assert(is_equal_approx(scene.outline_width, 2.6), "The default outline must match the video-calibrated capture")
 	assert(scene.actor.model_root == null, "A clean install must not contain a character")
 	assert(not scene.receiver.is_running(), "Startup must not occupy a camera")
 	assert(scene.start_button.disabled)

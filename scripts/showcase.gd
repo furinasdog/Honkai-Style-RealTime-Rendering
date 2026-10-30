@@ -5,7 +5,7 @@ const STUDIO_THEME := preload("res://scripts/ui_theme.tres")
 @export_range(-180.0, 180.0) var light_azimuth: float = 20.0
 @export_range(5.0, 85.0) var light_elevation: float = 48.4
 @export_range(-0.5, 0.7) var shadow_threshold: float = 0.30
-@export_range(0.0, 3.0) var outline_width: float = 1.15
+@export_range(0.0, 6.0) var outline_width: float = 2.6
 
 @onready var actor: Node3D = $Actor
 @onready var camera = $Camera3D
@@ -310,7 +310,7 @@ func _build_ui() -> void:
 	_button(views, "正面", func(): camera.set_view("front"))
 	_button(views, "侧面", func(): camera.set_view("right"))
 	_button(views, "重新取景", func(): camera.frame_subject())
-	_slider(graphics, "描边宽度", 0, 3, outline_width, func(value: float):
+	_slider(graphics, "描边宽度", 0, 6, outline_width, func(value: float):
 		outline_width = value
 		material_setup.set_outline_width(value))
 	pmx_outline_toggle = CheckButton.new()

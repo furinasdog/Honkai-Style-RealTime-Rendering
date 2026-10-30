@@ -1,5 +1,7 @@
 extends SceneTree
 
+const MAPS = preload("res://plugins/honkai_mmd/render/generated_maps.gd")
+
 
 func _initialize() -> void:
 	call_deferred("_run")
@@ -36,6 +38,9 @@ func _run() -> void:
 	var map_image := generated.get_image()
 	assert(absf(map_image.get_pixel(96,64).r - map_image.get_pixel(32,64).r) < 0.02, "Paired thresholds must support mirrored facial UVs")
 	assert(map_image.get_pixel(96,64).r > map_image.get_pixel(64,64).r + 0.1)
+	var degenerate: Array = arrays.duplicate(true)
+	degenerate[Mesh.ARRAY_TEX_UV] = PackedVector2Array([Vector2.ZERO,Vector2.ZERO,Vector2.ZERO,Vector2.ZERO])
+	assert(MAPS.build(degenerate,"face",metadata.head,Vector3.ZERO) == null, "Collapsed UVs must not replace the geometric fallback with an empty generated map")
 	renderer.set_enhanced(false)
 	assert(not material.get_shader_parameter("enhanced") and original.albedo_color == Color.WHITE)
 	var source := Image.create(8,8,false,Image.FORMAT_RGBA8)

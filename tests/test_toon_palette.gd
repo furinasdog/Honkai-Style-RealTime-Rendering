@@ -57,6 +57,7 @@ func _save(image: Image, name: String) -> void:
 func _run() -> void:
 	create_timer(30.0).timeout.connect(func(): quit(1))
 	DirAccess.make_dir_recursive_absolute("res://outputs")
+	_setup.set_enhanced(false)
 	root.size = Vector2i(512, 384)
 	root.msaa_3d = Viewport.MSAA_4X
 	var world := WorldEnvironment.new()
@@ -198,6 +199,7 @@ func _run() -> void:
 	face.material_override.set_shader_parameter("face_half_width", 1.0)
 	face.material_override.set_shader_parameter("face_bottom", -1.0)
 	face.material_override.set_shader_parameter("face_top", -0.5)
+	face.material_override.set_shader_parameter("eye_height", -0.7)
 	var face_shadow := await _image()
 	_assert_color(face_shadow.get_pixel(256, 192), DIFFUSE * SHADOWS[1], "Face must receive the real cast-shadow fixture while enabled")
 	_setup.set_shadows_enabled(false)
