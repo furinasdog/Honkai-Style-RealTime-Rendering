@@ -108,7 +108,7 @@ func _run() -> void:
 	_check(absf(authored_ratio.x - authored_linear.r * scalar) <= 0.025 and absf(authored_ratio.z - authored_linear.b * scalar) <= 0.025, "Authored Toon shadow/lit channel ratios changed: %s; scalar=%f" % [authored_ratio, scalar])
 	for color in [lit_colors[4], dark_colors[4]]:
 		_check(color.b > color.g + 0.04 and color.g > color.r + 0.01, "Saturated blue cloth must retain blue hue in both tones: %s" % color)
-	_check(dark_colors[8].r > dark_colors[8].g * 1.3 and dark_colors[8].b > dark_colors[8].g, "Authored pink hair pigment must survive in its pale strands' shadow")
+	_check(absf(dark_colors[8].r - dark_colors[8].g) < 0.025, "Outline pigment must not recolor hair shadows")
 	if failed:
 		quit(1)
 		return

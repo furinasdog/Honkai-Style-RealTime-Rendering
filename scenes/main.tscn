@@ -8,7 +8,9 @@
 [sub_resource type="Environment" id="Environment_stage"]
 background_mode = 1
 background_color = Color(0.075, 0.088, 0.13, 1)
-ambient_light_source = 3
+ambient_light_source = 2
+ambient_light_color = Color(1, 1, 1, 1)
+ambient_light_energy = 0.15
 reflected_light_source = 2
 tonemap_mode = 0
 
@@ -30,7 +32,7 @@ environment = SubResource("Environment_stage")
 
 [node name="KeyLight" type="DirectionalLight3D" parent="."]
 rotation_degrees = Vector3(-48.4, 20, 0)
-light_energy = 1.0
+light_energy = 0.85
 light_angular_distance = 0.0
 shadow_enabled = true
 shadow_bias = 0.05

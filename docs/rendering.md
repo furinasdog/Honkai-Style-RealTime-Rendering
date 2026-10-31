@@ -27,50 +27,42 @@ The main light has a fixed world-space azimuth of 20 degrees and elevation of
 light. Direction/elevation sliders and automatic light rotation are removed;
 the shadow toggle and light/dark threshold control remain available.
 
-The enhancement switch is enabled by default. Cloth uses broad two-tone
-normal bands without hard self-cast shadow patches. Skin, hair and the upper face
-retain controlled projected shadows; the lower face does not use lip, chin or
-nose surface normals to generate a curved shadow. Data maps are sampled in
-linear space; source colors and Ramp textures are sampled as color data.
+The enhancement switch is enabled by default. All characters use the same
+material rules and authored inputs. Diffuse colors, outline pigments, character
+names and head height do not select shadow-color or threshold compensation.
+Mesh normals are retained; there is no crown-normal replacement or guessed
+neck/chest shadow exemption.
 
-Native PMX Toon and Sphere textures are retained. In enhanced mode, the material
-category palette can blend with a PMX Toon shadow color; neutral Toon shadows
-are deepened with a shared luminance scalar rather than per-channel clipping.
-Palette membership uses the ungraded diffuse's sRGB saturation, so linear-space
-contrast cannot misclassify blue-gray cloth as saturated purple. Gray fallback
-cloth and hair use restrained neutral shadows even when a LightMap is present.
-Disabling enhancement restores its original light/shadow ratio. Sphere multiplication and addition
-preserve the original material operation. Shared Toon indices without external
-images use the runtime's category fallback. User warm/cool Ramps override the
-category palette. Enhancement brightens pale faces and hair, adds contrast to
-colored cloth, and limits broad shadows on near-white cloth without erasing
-medium-strength authored Toon shading.
-Without custom cloth maps, source hue and brightness deepen blue painted folds,
-gently reduce cyan in bright blue fabric while leaving very dark blue details
-intact, soften bright pink fabric, and slightly lift near-neutral pale fabric
-highlights. A bounded contrast curve deepens neutral dark midtones while
-preserving black/white endpoints and grayscale ordering. Pale cloth's dark
-folds retain a cool purple-gray tone. User Ramps bypass these approximate adjustments.
-The balance scales its lift by remaining highlight headroom: black and white
-endpoints remain unchanged, rather than clipping bright hair or white garments.
-The source textures remain unchanged. Turning enhancement off keeps original
-PMX material inputs and bypasses generated lighting details and fallback grading.
-Hair combines normal lighting and shadow visibility before a single two-tone
-decision, including partial projected-shadow visibility.
-The enhanced half-Lambert body threshold is near N.L = 0 at the default slider
-setting; pale fallback cloth lowers that threshold so the white chest retains
-small angular folds instead of a broad horizontal dark band. The basic PMX path
-keeps its original N.L threshold. Fallback pale pink hair uses its source hue
-and head-relative height to deepen lower strands without tinting neutral white
-hair; authored LightMaps and Ramps bypass this adjustment. Authored pink hair
-ink also preserves the pigment of pale strands, while neutral or blue ink does
-not activate that cue. Head-dependent hair fields scale with face bounds.
-The upper crown uses a broad, upward-facing normal field to avoid isolated
-strand-normal dark patches under overhead light; lower strands keep their normals.
-Fallback skin contact uses face bounds and width to restrict neck projection
-above the chest, retaining under-chin contact and body shadow reception.
-Eye-height contact reception fades over a narrow interval without a horizontal
-hard cut. LightMap R affects the Ramp's illumination coordinate as well as AO.
+Body, skin, hair and metal use half-Lambert, with LightMap G shifting the
+threshold and R multiplying the resulting illumination. The default UI value
+0.30 means a half-Lambert threshold of 0.5, independent of material pigment.
+Normal-band softness is 0.025; face SDF softness is 0.015, both with a derivative
+minimum for raster antialiasing. Directional projected visibility limits the
+normal band separately, so clothing receives occluder shadows. Point/spot lights
+retain their distance attenuation and source receive-shadow flags.
+
+Authored cold/warm Ramps sample x = 0.75 + 0.25 * illumination. Body rows use
+eight equal LightMap alpha bands; hair uses one row. This row convention must
+match the supplied asset (the reference article leaves row decoding unspecified).
+Light elevation blends the cold/warm colors. R is not multiplied into direct
+light a second time after the Ramp. PMX Toon and Sphere inputs remain intact;
+a supplied Ramp takes precedence over Toon. Without either, a shared category
+palette supplies the shadow tone, without inferring hues or folds from diffuse
+colors. Source textures and meshes remain unchanged.
+
+Enhanced materials now receive Godot environment diffuse irradiance, with
+LightMap R controlling ambient AO as 0.5 + 0.5 * R. FaceMap R selects face skin
+versus feature regions; G supplies feature AO. The studio uses a flat white
+ambient term of 0.15 and key energy 0.85 for consistent transparent-background
+output. This is a flat environment approximation, not a reconstruction of the
+game's SH coefficients; sky environments can supply directional irradiance.
+Basic mode retains the original PMX lighting path. Full-bright mode suppresses
+ambient and direct light, preserving texture/diffuse and additive Sphere output.
+
+Face lighting stays in head-local coordinates and uses authored SDF when
+available. Geometric fallback maps remain approximations. The generic eye-height
+mask limits projected shadow reception to the upper face, preserving the SDF
+shape below it; skin below the head receives ordinary projected shadows.
 
 The character studio uses an 8192-pixel orthogonal directional shadow atlas over
 14 metres, preserving the camera's 12-metre zoom range while reducing close-up
@@ -125,7 +117,7 @@ Body/hair LightMap uses R for occlusion, G for the light threshold, B for
 specular response and A for material bands. The eight equal alpha bands select
 body Ramp rows; hair uses one row. Cold/warm Ramp inputs are optional and use
 the source light elevation. Grayscale highlight masks override generated masks.
-LightMap R occlusion is applied after palette selection, including user Ramps.
+LightMap R controls the direct Ramp coordinate and the separate ambient AO term.
 This convention must match the supplied art; arbitrary textures cannot be
 automatically interpreted as matching lighting maps.
 
@@ -148,3 +140,13 @@ excluding these impossible rest contacts prevents persistent cape lift.
 These are rigid proxy improvements, not a triangle-level cloth solver.
 Thin sheets, blended skinning between bones, authored overlaps, very fast
 motion and models without useful physical bones can retain intersections.
+
+## Generic shadow verification (2026-10-31)
+
+`tests/test_generic_shadow.gd` checks actual GPU pixels for Ramp coordinates,
+material rows, LightMap R, pigment independence, environment AO and full-bright.
+`tests/capture_shadow_models.gd` accepts a PMX path and output directory; it uses
+the same 0.30 threshold, studio lighting and views for every model. Run GPU
+checks serially. Captures are visual evidence, not a pixel-matched game benchmark.
+Original game LightMap/FaceMap/Ramp assets were not supplied for these PMX models;
+matching their artistic shadow boundaries remains limited by that missing data.

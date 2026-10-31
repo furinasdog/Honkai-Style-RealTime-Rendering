@@ -53,13 +53,13 @@ func _run() -> void:
 	var pale_setup := Materials.new()
 	patch.material_override = pale_setup._make_material({"name":"pale cloth","category":"cloth","base_color":[1,1,1,1],"edge_enabled":false},{},null)
 	var pale_samples := []
-	for n_dot in [-0.20, -0.55]:
+	for n_dot in [0.20, -0.55]:
 		patch.mesh = _mesh(n_dot)
 		for frame in 3:
 			await process_frame
 		await RenderingServer.frame_post_draw
 		pale_samples.append(root.get_texture().get_image().get_pixel(128,128))
-	assert(pale_samples[0].get_luminance() > pale_samples[1].get_luminance() + 0.12, "Pale cloth keeps only the deeper angular shadow")
+	assert(pale_samples[0].get_luminance() > pale_samples[1].get_luminance() + 0.12, "Pale cloth uses the same normal threshold as colored cloth")
 	patch.free()
 	print("BODY_LIGHT_THRESHOLD_PASS basic .3 and enhanced half-Lambert thresholds, cloth/skin/metal")
 	quit()

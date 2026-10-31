@@ -7,6 +7,10 @@ func _initialize() -> void:
 
 func _run() -> void:
 	create_timer(20.0).timeout.connect(func(): quit(1))
+	var environment := WorldEnvironment.new()
+	environment.environment = Environment.new()
+	environment.environment.ambient_light_source = Environment.AMBIENT_SOURCE_DISABLED
+	root.add_child(environment)
 	var model := Node3D.new()
 	root.add_child(model)
 	var metadata := {"archive_sha256": "gpu-map-fixture", "materials": []}

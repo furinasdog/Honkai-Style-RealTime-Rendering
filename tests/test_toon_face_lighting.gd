@@ -61,7 +61,7 @@ func _run() -> void:
 		var green := side.get_pixel(x, 140).g
 		if minf(absf(green - cheek.g), absf(green - backlit.g)) > 0.015:
 			transition_pixels += 1
-	assert(transition_pixels <= 2, "Side-lit face has a gradient instead of two tones with a pixel-wide edge")
+	assert(transition_pixels <= 10, "Side-lit face has an excessively broad gradient instead of a bounded SDF transition")
 	model.free()
 	light.free()
 	camera.free()

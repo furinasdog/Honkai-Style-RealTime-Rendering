@@ -35,10 +35,6 @@ func image_texture(color: Color) -> Texture2D:
 	return ImageTexture.create_from_image(image)
 
 
-func balanced(color: Color, gain: Color) -> Color:
-	return Color(color.r + color.r*(gain.r-1.0)*clampf(1.0-color.r,0.0,1.0), color.g + color.g*(gain.g-1.0)*clampf(1.0-color.g,0.0,1.0), color.b + color.b*(gain.b-1.0)*clampf(1.0-color.b,0.0,1.0))
-
-
 func material(kind: String, color := Color(0.5, 0.5, 0.5)) -> ShaderMaterial:
 	var result := setup._make_material({"name": kind, "category": kind, "base_color": [color.r, color.g, color.b, 1.0], "edge_enabled": false}, {}, null)
 	result.set_shader_parameter("rim_strength", 0.0)
@@ -50,6 +46,10 @@ func material(kind: String, color := Color(0.5, 0.5, 0.5)) -> ShaderMaterial:
 
 func run() -> void:
 	create_timer(40).timeout.connect(func(): quit(1))
+	var environment := WorldEnvironment.new()
+	environment.environment = Environment.new()
+	environment.environment.ambient_light_source = Environment.AMBIENT_SOURCE_DISABLED
+	root.add_child(environment)
 	root.size = Vector2i(256, 256)
 	var camera := Camera3D.new()
 	root.add_child(camera)
@@ -99,7 +99,7 @@ func run() -> void:
 	authored.set_shader_parameter("rim_strength", 0.0)
 	patch.material_override = authored
 	var authored_bright := (await sample()).srgb_to_linear()
-	var cloth_balanced := balanced(Color(0.5,0.5,0.5),Color(1.06,1.04,1.02))
+	var cloth_balanced := Color(0.5,0.5,0.5)
 	check_color(authored_bright.linear_to_srgb(), cloth_balanced, "Enhanced authored Toon receives the same category balance as other diffuse materials")
 	light.rotation.y = PI
 	var authored_dark := (await sample()).srgb_to_linear()
@@ -202,7 +202,7 @@ func run() -> void:
 	receiver.shader = blocked
 	receiver.set_shader_parameter("rim_strength", 0.0)
 	patch.material_override = receiver
-	check_color(await sample(), balanced(Color(0.5,0.5,0.5),Color(1.03,1.11,1.07)), "Original receive-shadow flag must remain effective")
+	check_color(await sample(), Color(0.5,0.5,0.5), "Original receive-shadow flag must remain effective")
 	var glossy := setup._make_material({"name":"cloth", "category":"cloth", "base_color":[0.1,0.1,0.1,1.0], "edge_enabled":false, "specular":[0.2,0.0,0.0], "shininess":1.0}, {}, null)
 	glossy.set_shader_parameter("rim_strength", 0.0)
 	patch.material_override = glossy
@@ -217,89 +217,24 @@ func run() -> void:
 	patch.material_override = original_metal
 	check_color(await sample(), Color(0.5,0.5,0.5), "Enhancement off must not add an invented highlight to a matte authored metal")
 	setup.set_enhanced(true)
-	for pigment in [Color(0.2,0.4,0.7), Color(0.1,0.6,0.65)]:
-		patch.material_override = material("cloth", pigment)
-		var graded := (await sample()).srgb_to_linear()
-		var ungraded := balanced(pigment, Color(1.06,1.04,1.02))
-		check(graded.r > 0.01 and graded.r < graded.g and graded.g < graded.b, "Cloth contrast must retain blue/cyan hue and nonzero channel detail")
-		check(graded.g < ungraded.g - 0.05 and graded.b <= ungraded.b + 0.02, "Enhanced cloth should deepen colored fabric without lifting its blue channel")
-	var blue_folds := material("cloth", Color(0.08,0.22,0.55))
-	patch.material_override = blue_folds
-	setup.set_shadows_enabled(false)
-	var painted_blue := (await sample()).srgb_to_linear()
-	setup.set_shadows_enabled(true)
-	var folded_blue := (await sample()).srgb_to_linear()
-	check(folded_blue.g < painted_blue.g * 0.6 and folded_blue.b > folded_blue.g, "Dark blue painted folds must deepen without losing their hue")
-	var deep_blue := material("cloth", Color(0.03,0.07,0.25))
-	patch.material_override = deep_blue
-	setup.set_shadows_enabled(false)
-	var painted_deep_blue := (await sample()).srgb_to_linear()
-	setup.set_shadows_enabled(true)
-	var graded_deep_blue := (await sample()).srgb_to_linear()
-	check(absf(graded_deep_blue.g-painted_deep_blue.g) < 0.015, "Near-black blue cloth must retain its painted depth")
-	var bright_blue := material("cloth", Color(0.25,0.55,0.80))
-	patch.material_override = bright_blue
-	setup.set_shadows_enabled(false)
-	var painted_bright_blue := (await sample()).srgb_to_linear()
-	setup.set_shadows_enabled(true)
-	var graded_bright_blue := (await sample()).srgb_to_linear()
-	check(graded_bright_blue.g < painted_bright_blue.g - 0.04 and graded_bright_blue.b < painted_bright_blue.b - 0.02, "Bright blue cloth should be less cyan without crushing dark detail")
-	patch.material_override = blue_folds
-	blue_folds.set_shader_parameter("has_warm_ramp", true)
-	blue_folds.set_shader_parameter("warm_ramp", image_texture(Color.WHITE))
-	setup.set_enhanced(true)
-	var ramped_blue := (await sample()).srgb_to_linear()
-	check(ramped_blue.g > folded_blue.g * 2.0, "A user Ramp must bypass automatic blue cloth folds")
-	var pink_cloth := material("cloth", Color(0.70,0.35,0.68))
-	patch.material_override = pink_cloth
-	setup.set_shadows_enabled(false)
-	var painted_pink := (await sample()).srgb_to_linear()
-	setup.set_shadows_enabled(true)
-	var graded_pink := (await sample()).srgb_to_linear()
-	check(graded_pink.r < painted_pink.r and graded_pink.g > painted_pink.g, "Bright pink cloth must be less saturated")
-	var pale_cloth := material("cloth", Color(0.82,0.80,0.82))
-	patch.material_override = pale_cloth
-	setup.set_shadows_enabled(false)
-	setup.set_enhanced(false)
-	var pale_plain := (await sample()).srgb_to_linear()
-	setup.set_enhanced(true)
-	var pale_graded := (await sample()).srgb_to_linear()
-	check(pale_graded.r > pale_plain.r + 0.03 and pale_graded.g > pale_plain.g + 0.015 and pale_graded.b > pale_plain.b + 0.025, "Near-neutral pale cloth should gain a restrained warm highlight")
-	check(maxf(pale_graded.r,maxf(pale_graded.g,pale_graded.b)) < 0.99, "Pale cloth highlights must retain headroom")
-	var last_cloth_luminance := -1.0
-	for level in [0.0, 0.015, 0.03, 0.06, 0.1, 0.2, 0.4, 0.7, 1.0]:
-		patch.material_override = material("cloth", Color(level, level, level))
-		var gray_step := (await sample()).srgb_to_linear()
-		check(gray_step.get_luminance() >= last_cloth_luminance, "Neutral cloth contrast must preserve grayscale ordering")
-		if level == 0.0 or level == 1.0:
-			check_color(gray_step.linear_to_srgb(), Color(level,level,level), "Neutral contrast keeps black and white endpoints")
-		last_cloth_luminance = gray_step.get_luminance()
-	setup.set_shadows_enabled(true)
-	var previous := -1.0
-	var hair_without_edge := setup._make_material({"name":"hair", "category":"hair", "base_color":[0.5,0.5,0.5,1.0], "edge_enabled":false, "edge_color":[0.45,0.2,0.3,1.0]}, {}, null)
-	check(hair_without_edge.get_shader_parameter("palette_mix") > 0.5, "Hair palette must not depend on outline enablement")
-	for level in [0.0,0.1,0.5,0.9,0.96,1.0]:
-		patch.material_override = material("hair",Color(level,level,level))
-		var step_color := (await sample()).srgb_to_linear()
-		check_color(step_color.linear_to_srgb(),balanced(Color(level,level,level),Color(1.10,1.06,1.02)),"Bounded style balance must preserve highlight headroom")
-		check(step_color.g >= previous,"Style brightness must remain monotonic")
-		if level < 0.99:
-			check(maxf(step_color.r,maxf(step_color.g,step_color.b)) < 0.999,"Sub-white texture steps must not collapse to white")
-		previous = step_color.g
+	for kind in ["cloth", "hair", "skin"]:
+		for pigment in [Color(0.2,0.4,0.7), Color(0.7,0.3,0.6), Color(0.8,0.8,0.8), Color.BLACK]:
+			patch.material_override = material(kind, pigment)
+			check_color(await sample(), pigment, "Generic lighting preserves source pigments: " + kind)
 	var ao_material := material("cloth")
 	patch.material_override = ao_material
 	ao_material.set_shader_parameter("has_warm_ramp",true)
 	ao_material.set_shader_parameter("warm_ramp",image_texture(Color.WHITE))
 	ao_material.set_shader_parameter("has_light_map",true)
 	setup.set_enhanced(true)
-	ao_material.set_shader_parameter("light_map",image_texture(Color(1,0.5,0.5,0)))
+	ao_material.set_shader_parameter("light_map",image_texture(Color(1,0.5,0,0)))
 	var ao_open := (await sample()).srgb_to_linear()
-	ao_material.set_shader_parameter("light_map",image_texture(Color(0,0.5,0.5,0)))
+	ao_material.set_shader_parameter("light_map",image_texture(Color(0,0.5,0,0)))
 	var ao_closed := (await sample()).srgb_to_linear()
-	check(ao_closed.g < ao_open.g-0.1,"A user Ramp must retain the LightMap red-channel occlusion")
-	var ao_ramp := Image.create(2, 1, false, Image.FORMAT_RGBA8)
-	ao_ramp.set_pixel(0, 0, Color(0.1, 0.2, 0.6))
-	ao_ramp.set_pixel(1, 0, Color.WHITE)
+	check_color(ao_closed.linear_to_srgb(), ao_open, "A constant Ramp must not receive a second direct-light AO multiplier")
+	var ao_ramp := Image.create(8, 1, false, Image.FORMAT_RGBA8)
+	ao_ramp.fill(Color(0.1, 0.2, 0.6))
+	ao_ramp.set_pixel(7, 0, Color.WHITE)
 	ao_material.set_shader_parameter("warm_ramp", ImageTexture.create_from_image(ao_ramp))
 	var occluded_ramp := (await sample()).srgb_to_linear()
 	check(occluded_ramp.b > occluded_ramp.r * 3.0 and occluded_ramp.b > 0.03, "LightMap AO must select the shadow end of the Ramp, not merely dim its lit color")

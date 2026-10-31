@@ -80,7 +80,7 @@ func _run() -> void:
 		for column in 4:
 			_patches.append(_patch(Vector3(-1.5 + column, 0.65 - row * 1.3, 0), Vector3.BACK, KINDS[column], Color.WHITE if row == 0 else DIFFUSE))
 	_setup.set_shadow_threshold(0.30)
-	assert(is_equal_approx(_setup.materials[2].get_shader_parameter("shadow_threshold"), 0.22))
+	assert(is_equal_approx(_setup.materials[2].get_shader_parameter("shadow_threshold"), 0.30))
 	var lit := await _image()
 	_save(lit, "lit")
 	_light.rotation.y = PI
@@ -179,7 +179,7 @@ func _run() -> void:
 	_save(occluded, "occlusion")
 	_setup.set_enhanced(true)
 	var enhanced_receiver := await _image()
-	_assert_color(enhanced_receiver.get_pixel(256, 192), Color.WHITE, "Enhanced cloth must avoid hard self-cast patches")
+	_assert_color(enhanced_receiver.get_pixel(256, 192), Materials.SHADOW_TINTS[3], "Enhanced cloth must receive actual occlusion")
 	_setup.set_enhanced(false)
 	var basic_receiver := await _image()
 	_assert_color(basic_receiver.get_pixel(256, 192), SHADOWS[0], "Basic rendering must restore authored cast-shadow reception")
