@@ -35,8 +35,8 @@ light_angular_distance = 0.0
 shadow_enabled = true
 shadow_bias = 0.05
 shadow_normal_bias = 0.8
-directional_shadow_mode = 2
-directional_shadow_max_distance = 18.0
+directional_shadow_mode = 0
+directional_shadow_max_distance = 14.0
 
 [node name="Floor" type="StaticBody3D" parent="."]
 

@@ -1,0 +1,197 @@
+{
+  "date": "2026-10-31 Asia/Shanghai",
+  "baseline_git": {
+    "root": "beb97a9e56f8b4e227f484c69ada7e03963faa05",
+    "renderer": "2b8df69dc3e3d3f3afba0d3f6cebac52a20994de",
+    "tag": "checkpoint/video-baseline-20261031"
+  },
+  "source_sha256": {
+    "plugins/honkai_mmd/render/toon.gdshader": "6e2983127a2b8d877ce38df3efdaf93e578fccf2e681c186d5584e16784ed621",
+    "plugins/honkai_mmd/render/materials.gd": "729995652fcb674dad67f54a3ac5a44374800230f3f486d04ca89dcea9708e5b",
+    "project.godot": "46ca6687ab8e48b4186689e7eb24ab6a50c8f55775122d2207d3b43c08405c07",
+    "scenes/main.tscn": "b88fe816c9bc125da43bbdfe78eba095918dbf0465c4344f6387aa9976c59876",
+    "docs/rendering.md": "d795f0171c154c2c7c530f499a9b10fc42ee7914967bf8a36d55209a84188119",
+    "tests/test_neutral_shadow.gd": "ea3897b6de203ec34f37d3896e7a0d4d503abaa61bf47b703b5cb82096d2e5fd",
+    "tests/test_material_fidelity.gd": "b44338b395d00d35eceee97a6d7d32ea2da1a4ad7c0f3477489fa286e6761a5e",
+    "tests/test_face_contact_rendering.gd": "804c47e68eefa964c1a522e4471c221ed82c96aaf7d5a36aff49e1de73417c89",
+    "tests/test_stylized_lighting.gd": "9f1d64013675889c474b380b06eb6eefa5ee196b857ac0794bae8c84e0b523ce"
+  },
+  "controls": {
+    "enhanced": true,
+    "pmx_outline_colors": false,
+    "outline_px": 2.6,
+    "shadow_threshold": 0.3,
+    "light_azimuth": 20.0,
+    "light_elevation": 48.4,
+    "atlas": 8192,
+    "shadow_distance": 14,
+    "shadow_mode": "orthogonal"
+  },
+  "model_specific_branches": false,
+  "model_or_texture_edits": false,
+  "engine_source_edits": false,
+  "metal_reflection_work": false,
+  "metrics": {
+    "phainon": {
+      "samples": [
+        {
+          "xy": [
+            609,
+            778
+          ],
+          "baseline_rgb": [
+            79,
+            48,
+            72
+          ],
+          "current_rgb": [
+            52,
+            50,
+            62
+          ]
+        },
+        {
+          "xy": [
+            607,
+            773
+          ],
+          "baseline_rgb": [
+            85,
+            53,
+            79
+          ],
+          "current_rgb": [
+            57,
+            55,
+            67
+          ]
+        },
+        {
+          "xy": [
+            510,
+            1037
+          ],
+          "baseline_rgb": [
+            70,
+            43,
+            66
+          ],
+          "current_rgb": [
+            46,
+            44,
+            56
+          ]
+        },
+        {
+          "xy": [
+            628,
+            1102
+          ],
+          "baseline_rgb": [
+            53,
+            32,
+            42
+          ],
+          "current_rgb": [
+            39,
+            39,
+            40
+          ]
+        }
+      ],
+      "diagnostic_magenta_dark_pixels": {
+        "baseline": 6864,
+        "current": 54,
+        "scope": "same full render and heuristic, not game reference error"
+      }
+    },
+    "march": {
+      "samples": []
+    },
+    "senti": {
+      "samples": []
+    }
+  },
+  "visual_limits": [
+    "No original authored LightMap, FaceMap/SDF or complete game shader was supplied.",
+    "Comparison poses and camera calibration are approximate; Senti reference is 300x485 GIF.",
+    "This is a local D3D12 visual candidate, not verified across GPUs or a newly packaged release."
+  ],
+  "test_evidence": [
+    {
+      "tag": "material_refine10",
+      "pass_markers": [
+        "MATERIAL_FIDELITY_PASS face/user Ramp, authored Toon, sphere multiply/add/subtexture, source fallback, full bright, receive-shadow, specular, metal semantics, blue/cyan detail"
+      ]
+    },
+    {
+      "tag": "neutral_refine10",
+      "pass_markers": [
+        "NEUTRAL_SHADOW_PASS neutral and blue-gray authored/fallback cloth, warm/cool gray hair, saturated blue cloth"
+      ]
+    },
+    {
+      "tag": "stylized_refine9",
+      "pass_markers": [
+        "STYLIZED_LIGHTING_PASS category fallback, raw-source toggle, cloth contrast, unified hair band, authored Ramp, neck cast split"
+      ]
+    },
+    {
+      "tag": "body_refine_final",
+      "pass_markers": [
+        "BODY_LIGHT_THRESHOLD_PASS basic .3 and enhanced half-Lambert thresholds, cloth/skin/metal"
+      ]
+    },
+    {
+      "tag": "face_contact_refine_final",
+      "pass_markers": [
+        "FACE_CONTACT_RENDERING_PASS eye contact, reused UV independence, lower-face protection, geometric fallback and full-bright on actual GPU"
+      ]
+    },
+    {
+      "tag": "palette_refine_final",
+      "pass_markers": [
+        "TOON_PALETTE_PASS linear palette, runtime full-bright toggle, colored/front/back/no light, new model UV/alpha, face and real cast shadow restore; MSAA 4x"
+      ]
+    },
+    {
+      "tag": "outline_refine_final",
+      "pass_markers": [
+        "OUTLINE_PIXELS_PASS ortho/perspective, near/far, 256/512, material and vertex edge weights, texture/edge alpha and transparent variants, face openings, material-colored and PMX color, cast shadow unchanged; widths=[3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0] edge_alpha_intensities=[1.0, 0.48627451062202]"
+      ]
+    },
+    {
+      "tag": "shadow_refine_final",
+      "pass_markers": [
+        "SHADOW_PASS_PASS coincident camera/light, source caster flag, outline rejection, blocked positive control"
+      ]
+    },
+    {
+      "tag": "enhancements_refine_final",
+      "pass_markers": [
+        "RENDER_ENHANCEMENTS_PASS lazy generation, angular map, original fallback, map validation, portable copy, restore/removal and malformed settings"
+      ]
+    },
+    {
+      "tag": "ui_refine_final",
+      "pass_markers": [
+        "STUDIO_UI_PASS: empty startup, native module, no camera, transparent decorated window, menus, collapse and native pixels"
+      ]
+    }
+  ],
+  "artifacts": {
+    "outputs/refine_20261031/final/三月七_旋转检查.mp4": {
+      "sha256": "3a31a4877a714b2d3a0c548d9ddbf437636d4443c213a07f31b6f0cf189d90c5",
+      "bytes": 3371872
+    },
+    "outputs/refine_20261031/final/三角色_正面_实机_vs_当前渲染.png": {
+      "sha256": "6589d2965b2f010f31a502fb45be73e8bccc6412e123a80588a3e632dd98dc74",
+      "bytes": 2514177
+    },
+    "outputs/refine_20261031/final/白厄_三月七_侧面_实机_vs_当前渲染.png": {
+      "sha256": "e74192e6d2aec2d3850d76255ee325207c75fe9c87f90e54041d054f94e9c9c7",
+      "bytes": 2110253
+    }
+  },
+  "app_preference": "pmx_outline_colors=false; all other saved user settings preserved"
+}

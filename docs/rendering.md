@@ -6,6 +6,11 @@ Still images do not establish the original engine's complete shadow algorithm.
 
 References read:
 
+- [Honkai 3rd toon lighting breakdown](https://zhuanlan.zhihu.com/p/120908528):
+  LightMap channels separate shadow thresholds from specular masks.
+- [URP Genshin recreation notes](https://zhuanlan.zhihu.com/p/699682089):
+  color/data texture handling, Ramp sampling, face SDF and outline masks. Its
+  example does not implement general shadow reception or multiple lights.
 - [Unity cartoon rendering notes](https://zhuanlan.zhihu.com/p/711037262):
   separate body/hair lighting controls, remapped Lambert response, face-local
   angular SDF evaluation, artist-authored Ramp colors, nose marks and stencil
@@ -24,8 +29,12 @@ nose surface normals to generate a curved shadow. Data maps are sampled in
 linear space; source colors and Ramp textures are sampled as color data.
 
 Native PMX Toon and Sphere textures are retained. In enhanced mode, the material
-category palette can blend with a PMX Toon shadow color; disabling enhancement
-restores its original light/shadow ratio. Sphere multiplication and addition
+category palette can blend with a PMX Toon shadow color; neutral Toon shadows
+are deepened with a shared luminance scalar rather than per-channel clipping.
+Palette membership uses the ungraded diffuse's sRGB saturation, so linear-space
+contrast cannot misclassify blue-gray cloth as saturated purple. Gray fallback
+cloth and hair use restrained neutral shadows even when a LightMap is present.
+Disabling enhancement restores its original light/shadow ratio. Sphere multiplication and addition
 preserve the original material operation. Shared Toon indices without external
 images use the runtime's category fallback. User warm/cool Ramps override the
 category palette. Enhancement brightens pale faces and hair, adds contrast to
@@ -34,7 +43,9 @@ medium-strength authored Toon shading.
 Without custom cloth maps, source hue and brightness deepen blue painted folds,
 gently reduce cyan in bright blue fabric while leaving very dark blue details
 intact, soften bright pink fabric, and slightly lift near-neutral pale fabric
-highlights. User Ramps bypass these approximate adjustments.
+highlights. A bounded contrast curve deepens neutral dark midtones while
+preserving black/white endpoints and grayscale ordering. Pale cloth's dark
+folds retain a cool purple-gray tone. User Ramps bypass these approximate adjustments.
 The balance scales its lift by remaining highlight headroom: black and white
 endpoints remain unchanged, rather than clipping bright hair or white garments.
 The source textures remain unchanged. Turning enhancement off keeps original
@@ -46,8 +57,18 @@ setting; pale fallback cloth lowers that threshold so the white chest retains
 small angular folds instead of a broad horizontal dark band. The basic PMX path
 keeps its original N.L threshold. Fallback pale pink hair uses its source hue
 and head-relative height to deepen lower strands without tinting neutral white
-hair; authored LightMaps and Ramps bypass this adjustment. Rear neck skin
-rejects hair cast shadow while frontal contact shadows remain active.
+hair; authored LightMaps and Ramps bypass this adjustment. Authored pink hair
+ink also preserves the pigment of pale strands, while neutral or blue ink does
+not activate that cue. Head-dependent hair fields scale with face bounds.
+Fallback skin contact uses face bounds and width to restrict neck projection
+above the chest, retaining under-chin contact and body shadow reception.
+Eye-height contact reception fades over a narrow interval without a horizontal
+hard cut. LightMap R affects the Ramp's illumination coordinate as well as AO.
+
+The character studio uses an 8192-pixel orthogonal directional shadow atlas over
+14 metres, preserving the camera's 12-metre zoom range while reducing close-up
+cascade transitions and projected-edge stair steps. GPU compatibility and memory
+optimization have not been addressed in this visual-fidelity pass.
 
 Missing face data is approximated from this model's face geometry and UVs.
 Horizontal cheek profiles generate paired angular thresholds for left/right

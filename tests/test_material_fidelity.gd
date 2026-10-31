@@ -266,6 +266,14 @@ func run() -> void:
 	var pale_graded := (await sample()).srgb_to_linear()
 	check(pale_graded.r > pale_plain.r + 0.03 and pale_graded.g > pale_plain.g + 0.015 and pale_graded.b > pale_plain.b + 0.025, "Near-neutral pale cloth should gain a restrained warm highlight")
 	check(maxf(pale_graded.r,maxf(pale_graded.g,pale_graded.b)) < 0.99, "Pale cloth highlights must retain headroom")
+	var last_cloth_luminance := -1.0
+	for level in [0.0, 0.015, 0.03, 0.06, 0.1, 0.2, 0.4, 0.7, 1.0]:
+		patch.material_override = material("cloth", Color(level, level, level))
+		var gray_step := (await sample()).srgb_to_linear()
+		check(gray_step.get_luminance() >= last_cloth_luminance, "Neutral cloth contrast must preserve grayscale ordering")
+		if level == 0.0 or level == 1.0:
+			check_color(gray_step.linear_to_srgb(), Color(level,level,level), "Neutral contrast keeps black and white endpoints")
+		last_cloth_luminance = gray_step.get_luminance()
 	setup.set_shadows_enabled(true)
 	var previous := -1.0
 	var hair_without_edge := setup._make_material({"name":"hair", "category":"hair", "base_color":[0.5,0.5,0.5,1.0], "edge_enabled":false, "edge_color":[0.45,0.2,0.3,1.0]}, {}, null)
@@ -289,6 +297,12 @@ func run() -> void:
 	ao_material.set_shader_parameter("light_map",image_texture(Color(0,0.5,0.5,0)))
 	var ao_closed := (await sample()).srgb_to_linear()
 	check(ao_closed.g < ao_open.g-0.1,"A user Ramp must retain the LightMap red-channel occlusion")
+	var ao_ramp := Image.create(2, 1, false, Image.FORMAT_RGBA8)
+	ao_ramp.set_pixel(0, 0, Color(0.1, 0.2, 0.6))
+	ao_ramp.set_pixel(1, 0, Color.WHITE)
+	ao_material.set_shader_parameter("warm_ramp", ImageTexture.create_from_image(ao_ramp))
+	var occluded_ramp := (await sample()).srgb_to_linear()
+	check(occluded_ramp.b > occluded_ramp.r * 3.0 and occluded_ramp.b > 0.03, "LightMap AO must select the shadow end of the Ramp, not merely dim its lit color")
 	var edged := {"name":"cloth", "category":"cloth", "base_color":[0.5,0.5,0.5,1.0], "edge_enabled":true, "edge_color":[0.2,0.1,0.1,0.2]}
 	var translucent_outline := setup._make_material(edged, {}, null).next_pass as ShaderMaterial
 	edged.edge_color[3] = 1.0

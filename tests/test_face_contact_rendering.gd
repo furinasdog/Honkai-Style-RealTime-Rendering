@@ -50,6 +50,8 @@ func _run() -> void:
 	patch.material_override = material
 	var image := await _capture()
 	assert(image.get_pixel(128,112).g + 0.03 < image.get_pixel(128,176).g, "Shadow visibility must affect the eye region, while leaving lips/chin lit")
+	for row in range(106, 150):
+		assert(absf(image.get_pixel(128,row).g - image.get_pixel(128,row+1).g) < 0.035, "Eye-height contact reception must fade without a hard horizontal cut")
 	var shared_uv := material.get_shader_parameter("generated_map").get_image() as Image
 	for y in shared_uv.get_height():
 		for x in shared_uv.get_width():

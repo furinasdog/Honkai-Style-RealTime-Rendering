@@ -57,11 +57,11 @@ func _run() -> void:
 	var partial := Shader.new()
 	partial.code = Materials.TOON.code.replace("ATTENUATION", "0.6").replace("dot(NORMAL, LIGHT)", "0.2")
 	material.shader = partial
-	_check(await _image(), Color(0.525,0.515,0.505) * Color(0.67,0.33,0.41), "Grazing hair and partial visibility share one band decision")
+	_check(await _image(), Color(0.525,0.515,0.505) * Color(0.60,0.62,0.65), "Grazing neutral hair and partial visibility share one band decision")
 	partial = Shader.new()
 	partial.code = Materials.TOON.code.replace("ATTENUATION", "1.0").replace("dot(NORMAL, LIGHT)", "0.1")
 	material.shader = partial
-	_check(await _image(), Color(0.525,0.515,0.505) * Color(0.67,0.33,0.41), "Enhanced hair keeps its dark band after half-Lambert remapping")
+	_check(await _image(), Color(0.525,0.515,0.505) * Color(0.60,0.62,0.65), "Enhanced neutral hair keeps a cool dark band after half-Lambert remapping")
 	material.shader = Materials.TOON
 	var ramp_image := Image.create(2, 2, false, Image.FORMAT_RGBA8)
 	ramp_image.fill(Color(0.6,0.8,1.0))
@@ -93,6 +93,16 @@ func _run() -> void:
 	_check(await _image(), Color(0.7063,0.5275,0.4168), "Rear neck skin rejects hair cast shadow")
 	skin.set_shader_parameter("world_to_head", Transform3D(Basis.IDENTITY, Vector3(0.0, -0.08, 0.05)))
 	_check(await _image(), Color(0.7063,0.5275,0.4168) * Color(0.94,0.61,0.57), "Front neck keeps contact shadow")
+	for scale in [0.5, 2.0]:
+		skin.set_shader_parameter("face_bottom", -0.06 * scale)
+		skin.set_shader_parameter("face_top", 0.12 * scale)
+		skin.set_shader_parameter("face_half_width", 0.0817 * scale)
+		skin.set_shader_parameter("world_to_head", Transform3D(Basis.IDENTITY, Vector3(0.0, -0.08, 0.05) * scale))
+		_check(await _image(), Color(0.7063,0.5275,0.4168) * Color(0.94,0.61,0.57), "Scaled head keeps chin contact")
+		skin.set_shader_parameter("world_to_head", Transform3D(Basis.IDENTITY, Vector3(0.0, -0.13, 0.05) * scale))
+		_check(await _image(), Color(0.7063,0.5275,0.4168), "Scaled head bounds contact above the chest")
+	skin.set_shader_parameter("world_to_head", Transform3D(Basis.IDENTITY, Vector3(0.4, -0.13, 0.05)))
+	_check(await _image(), Color(0.7063,0.5275,0.4168) * Color(0.94,0.61,0.57), "Head contact mask must not suppress limb shadows")
 	patch.free()
 	if failed:
 		quit(1)
