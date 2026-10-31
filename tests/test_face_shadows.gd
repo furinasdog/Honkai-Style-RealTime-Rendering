@@ -49,21 +49,18 @@ func _run() -> void:
 		checks.append({"pitch": pitch, "head_origin": origin, "bounds": bounds})
 	rig.set_bone_pose_rotation(head, rest)
 	for elevation in [5, 60, 85]:
-		scene.light_elevation = elevation
-		scene._set_light()
+		scene.key_light.rotation_degrees = Vector3(-float(elevation), 20.0, 0.0)
 		for step in 5:
 			await process_frame
 			scene.material_setup.update_head(rig)
 		await RenderingServer.frame_post_draw
 		assert(root.get_texture().get_image().save_png(args[1].path_join("elevation_%d.png" % elevation)) == OK)
-	scene.light_elevation = 35
 	for azimuth in [-90, 90, 180]:
-		scene.light_azimuth = azimuth
-		scene._set_light()
+		scene.key_light.rotation_degrees = Vector3(-35.0, float(azimuth), 0.0)
 		await process_frame
 		await RenderingServer.frame_post_draw
 		assert(root.get_texture().get_image().save_png(args[1].path_join("azimuth_%d.png" % azimuth)) == OK)
-	print("FACE_SHADOW_CAPTURE_PASS ", JSON.stringify({"poses": checks.size(), "light_elevations": [5, 35, 60, 85], "light_azimuths": [-90, 90, 180], "mouth_open": jaw >= 0, "camera_opened": false}))
+	print("FACE_SHADOW_CAPTURE_PASS ", JSON.stringify({"poses": checks.size(), "light_elevations": [5, 48.4, 60, 85], "light_azimuths": [-90, 90, 180], "azimuth_sweep_elevation": 35, "mouth_open": jaw >= 0, "camera_opened": false}))
 	scene.queue_free()
 	await process_frame
 	quit(0)

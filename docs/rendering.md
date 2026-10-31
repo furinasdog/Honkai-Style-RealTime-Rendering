@@ -22,6 +22,11 @@ References read:
 
 ## Runtime behavior
 
+The main light has a fixed world-space azimuth of 20 degrees and elevation of
+48.4 degrees. Camera orbit, actor movement and actor rotation do not move the
+light. Direction/elevation sliders and automatic light rotation are removed;
+the shadow toggle and light/dark threshold control remain available.
+
 The enhancement switch is enabled by default. Cloth uses broad two-tone
 normal bands without hard self-cast shadow patches. Skin, hair and the upper face
 retain controlled projected shadows; the lower face does not use lip, chin or

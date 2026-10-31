@@ -2,8 +2,6 @@ extends Node3D
 
 const STUDIO_THEME := preload("res://scripts/ui_theme.tres")
 
-@export_range(-180.0, 180.0) var light_azimuth: float = 20.0
-@export_range(5.0, 85.0) var light_elevation: float = 48.4
 @export_range(-0.5, 0.7) var shadow_threshold: float = 0.30
 @export_range(0.0, 6.0) var outline_width: float = 2.6
 
@@ -17,11 +15,9 @@ var receiver := preload("res://scripts/native_mocap.gd").new()
 var retarget := preload("res://scripts/mocap_retarget.gd").new()
 var receiver_error: Error = OK
 var _was_capturing := false
-var turn_light: bool = false
 var hud: CanvasLayer
 var status: Label
 var render_status: Label
-var light_slider: HSlider
 var notice: Label
 var menu_windows: Dictionary = {}
 var start_button: Button
@@ -118,7 +114,6 @@ func _ready() -> void:
 	capture_preview.preview_changed.connect(app_settings.set_preview_state)
 	_restore_preferences()
 	_preferences_ready = true
-	_set_light()
 	if receiver_error != OK:
 		notice.text = "原生动捕模块加载失败，请检查完整发行文件。"
 	print("MOCAP_READY version=", ProjectSettings.get_setting("application/config/version", ""), " renderer=", RenderingServer.get_video_adapter_name(), " render_size=", get_viewport().get_texture().get_size())
@@ -133,10 +128,6 @@ func _process(delta: float) -> void:
 	if actor.skeleton != null:
 		retarget.update(delta)
 		material_setup.update_head(actor.skeleton)
-	if turn_light:
-		light_azimuth = wrapf(light_azimuth + delta * 24.0, -180.0, 180.0)
-		light_slider.set_value_no_signal(light_azimuth)
-		_set_light()
 	var running: bool = receiver.is_running()
 	if _was_capturing and not running:
 		notice.text = "捕捉已结束。" + receiver.get_error()
@@ -199,13 +190,6 @@ func stop_capture() -> void:
 	if cloth_setup != null:
 		cloth_setup.reset()
 	notice.text = "已停止捕捉并释放摄像头。"
-
-func _set_light() -> void:
-	var azimuth := deg_to_rad(light_azimuth)
-	var elevation := deg_to_rad(light_elevation)
-	var to_light := Vector3(sin(azimuth) * cos(elevation), sin(elevation), cos(azimuth) * cos(elevation))
-	key_light.look_at_from_position(actor.global_position + to_light * 8.0, actor.global_position)
-
 
 func save_screenshot() -> void:
 	var folder := ProjectSettings.globalize_path("user://captures")
@@ -337,27 +321,16 @@ func _build_ui() -> void:
 	scene.add_child(background_picker)
 	_button(scene, "添加场景 / 图片…", func(): scene_dialog.popup_centered(Vector2i(900, 600)))
 	_button(scene, "清除场景", func(): stage.clear_asset(); _save_preferences())
-	_label(scene, "灯光", 18, STUDIO_THEME.get_color("text", "Studio"))
+	_label(scene, "阴影", 18, STUDIO_THEME.get_color("text", "Studio"))
 	shadows_toggle = CheckButton.new()
 	shadows_toggle.text = "计算阴影"
 	shadows_toggle.button_pressed = shadows_enabled
 	shadows_toggle.tooltip_text = "关闭后所有材质使用照亮色，保留贴图、透明度与描边。"
 	shadows_toggle.toggled.connect(_set_shadows_enabled)
 	scene.add_child(shadows_toggle)
-	light_slider = _slider(scene, "灯光方向", -180, 180, light_azimuth, func(value: float):
-		light_azimuth = value
-		_set_light())
-	_slider(scene, "灯光高度", 5, 85, light_elevation, func(value: float):
-		light_elevation = value
-		_set_light())
 	_slider(scene, "明暗分界", -0.5, 0.7, shadow_threshold, func(value: float):
 		shadow_threshold = value
 		material_setup.set_shadow_threshold(value))
-	var rotate_light := CheckButton.new()
-	rotate_light.text = "自动转灯"
-	rotate_light.toggled.connect(func(enabled: bool): turn_light = enabled)
-	scene.add_child(rotate_light)
-
 	var application := _menu_page("应用", theme)
 	_label(application, "实时角色动捕　OBS 透明输出", 16, STUDIO_THEME.get_color("text", "Studio"))
 	var scale_row := HBoxContainer.new()

@@ -17,7 +17,35 @@ func _run() -> void:
 	assert(scene.stage.transparent and root.transparent_bg)
 	assert(not root.borderless, "Transparency must retain the system title bar")
 	assert(scene.menu_windows.size() == 4)
-	assert(scene.menu_windows["场景"].is_ancestor_of(scene.light_slider), "Lighting controls belong to the scene page")
+	assert(scene.menu_windows["场景"].is_ancestor_of(scene.shadows_toggle), "Shadow controls belong to the scene page")
+	for label: Label in scene.menu_windows["场景"].find_children("*", "Label", true, false):
+		assert(label.text not in ["灯光方向", "灯光高度"], "Fixed lighting must not expose direction sliders")
+	for button: BaseButton in scene.menu_windows["场景"].find_children("*", "BaseButton", true, false):
+		assert(button.text != "自动转灯", "Fixed lighting must not expose automatic light rotation")
+	var fixed_basis: Basis = scene.key_light.global_basis
+	var azimuth := deg_to_rad(20.0)
+	var elevation := deg_to_rad(48.4)
+	var to_light := Vector3(sin(azimuth) * cos(elevation), sin(elevation), cos(azimuth) * cos(elevation))
+	assert(fixed_basis.z.is_equal_approx(to_light), "The scene must retain the calibrated fixed world-light direction")
+	var initial_camera_transform: Transform3D = scene.camera.transform
+	var initial_camera_projection: int = scene.camera.projection
+	var initial_camera_yaw: float = scene.camera.yaw
+	var initial_camera_pitch: float = scene.camera.pitch
+	var initial_actor_transform: Transform3D = scene.actor.transform
+	scene.camera.set_view("right")
+	assert(scene.key_light.global_basis.is_equal_approx(fixed_basis), "Orbiting the camera must not rotate the light")
+	scene.actor.rotate_y(PI * 0.5)
+	scene.actor.position += Vector3(0.3, 0.1, -0.2)
+	assert(scene.key_light.global_basis.is_equal_approx(fixed_basis), "Moving or rotating the actor must not rotate the light")
+	for frame in 3:
+		await process_frame
+	scene._process(0.25)
+	assert(scene.key_light.global_basis.is_equal_approx(fixed_basis), "Process updates must preserve the fixed world-light direction")
+	scene.camera.yaw = initial_camera_yaw
+	scene.camera.pitch = initial_camera_pitch
+	scene.camera.projection = initial_camera_projection
+	scene.camera.transform = initial_camera_transform
+	scene.actor.transform = initial_actor_transform
 	assert(scene.enhanced and not scene.eye_transparency)
 	assert(scene.menu_windows["模型"].is_ancestor_of(scene.enhanced_toggle))
 	scene.enhanced_toggle.button_pressed = false
@@ -90,5 +118,5 @@ func _run() -> void:
 	assert(not scene.receiver.is_running())
 	scene.queue_free()
 	await process_frame
-	print("STUDIO_UI_PASS: empty startup, native module, no camera, transparent decorated window, menus, collapse and native pixels")
+	print("STUDIO_UI_PASS: fixed world light, independent camera/actor rotation, empty startup, native module, no camera, transparent decorated window, menus, collapse and native pixels")
 	quit(0)

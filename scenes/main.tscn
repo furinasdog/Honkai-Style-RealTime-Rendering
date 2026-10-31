@@ -29,7 +29,7 @@ script = ExtResource("1")
 environment = SubResource("Environment_stage")
 
 [node name="KeyLight" type="DirectionalLight3D" parent="."]
-rotation_degrees = Vector3(-35, 160, 0)
+rotation_degrees = Vector3(-48.4, 20, 0)
 light_energy = 1.0
 light_angular_distance = 0.0
 shadow_enabled = true
