@@ -60,6 +60,8 @@ and head-relative height to deepen lower strands without tinting neutral white
 hair; authored LightMaps and Ramps bypass this adjustment. Authored pink hair
 ink also preserves the pigment of pale strands, while neutral or blue ink does
 not activate that cue. Head-dependent hair fields scale with face bounds.
+The upper crown uses a broad, upward-facing normal field to avoid isolated
+strand-normal dark patches under overhead light; lower strands keep their normals.
 Fallback skin contact uses face bounds and width to restrict neck projection
 above the chest, retaining under-chin contact and body shadow reception.
 Eye-height contact reception fades over a narrow interval without a horizontal

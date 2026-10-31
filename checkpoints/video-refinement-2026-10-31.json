@@ -6,15 +6,15 @@
     "tag": "checkpoint/video-baseline-20261031"
   },
   "source_sha256": {
-    "plugins/honkai_mmd/render/toon.gdshader": "6e2983127a2b8d877ce38df3efdaf93e578fccf2e681c186d5584e16784ed621",
+    "plugins/honkai_mmd/render/toon.gdshader": "fe63bae2f9f24ca271670adf4d7e5557c7b3b7cb6dbc7f6fd89076722325e662",
     "plugins/honkai_mmd/render/materials.gd": "729995652fcb674dad67f54a3ac5a44374800230f3f486d04ca89dcea9708e5b",
     "project.godot": "46ca6687ab8e48b4186689e7eb24ab6a50c8f55775122d2207d3b43c08405c07",
     "scenes/main.tscn": "b88fe816c9bc125da43bbdfe78eba095918dbf0465c4344f6387aa9976c59876",
-    "docs/rendering.md": "d795f0171c154c2c7c530f499a9b10fc42ee7914967bf8a36d55209a84188119",
+    "docs/rendering.md": "799a1c5880ae37ebdf7aab38cba4090a86a3ed8861d9e3cb3b6c5379334eda5a",
     "tests/test_neutral_shadow.gd": "ea3897b6de203ec34f37d3896e7a0d4d503abaa61bf47b703b5cb82096d2e5fd",
     "tests/test_material_fidelity.gd": "b44338b395d00d35eceee97a6d7d32ea2da1a4ad7c0f3477489fa286e6761a5e",
     "tests/test_face_contact_rendering.gd": "804c47e68eefa964c1a522e4471c221ed82c96aaf7d5a36aff49e1de73417c89",
-    "tests/test_stylized_lighting.gd": "9f1d64013675889c474b380b06eb6eefa5ee196b857ac0794bae8c84e0b523ce"
+    "tests/test_stylized_lighting.gd": "69e2989e9b423d37d487531164eb3697e7759d1cf52e05650117c7592a610c11"
   },
   "controls": {
     "enhanced": true,
@@ -131,7 +131,7 @@
       ]
     },
     {
-      "tag": "stylized_refine9",
+      "tag": "crown_lighting_final",
       "pass_markers": [
         "STYLIZED_LIGHTING_PASS category fallback, raw-source toggle, cloth contrast, unified hair band, authored Ramp, neck cast split"
       ]
@@ -181,17 +181,18 @@
   ],
   "artifacts": {
     "outputs/refine_20261031/final/三月七_旋转检查.mp4": {
-      "sha256": "3a31a4877a714b2d3a0c548d9ddbf437636d4443c213a07f31b6f0cf189d90c5",
-      "bytes": 3371872
+      "sha256": "253040e1037890cb0c3739ff7301347358958841da333d051362140e58312e8b",
+      "bytes": 3368494
     },
     "outputs/refine_20261031/final/三角色_正面_实机_vs_当前渲染.png": {
-      "sha256": "6589d2965b2f010f31a502fb45be73e8bccc6412e123a80588a3e632dd98dc74",
-      "bytes": 2514177
+      "sha256": "bd91602aaa894c2aca91788cc7b11414f676ba4ddda5c3f09b6332c71d4d48b9",
+      "bytes": 2514239
     },
     "outputs/refine_20261031/final/白厄_三月七_侧面_实机_vs_当前渲染.png": {
-      "sha256": "e74192e6d2aec2d3850d76255ee325207c75fe9c87f90e54041d054f94e9c9c7",
-      "bytes": 2110253
+      "sha256": "012960ee2edf67e7a1a298165ef270c2ddfadf0a5b0d13df30c3e6cc063e481d",
+      "bytes": 2110044
     }
   },
-  "app_preference": "pmx_outline_colors=false; all other saved user settings preserved"
+  "app_preference": "pmx_outline_colors=false; all other saved user settings preserved",
+  "additional_diagnostic": "Crown blotch persisted with cast shadows disabled and disappeared with normal lighting disabled. Upper-crown normal field corrected and covered by an actual GPU fixture."
 }

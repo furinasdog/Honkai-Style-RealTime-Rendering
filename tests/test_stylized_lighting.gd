@@ -63,6 +63,14 @@ func _run() -> void:
 	material.shader = partial
 	_check(await _image(), Color(0.525,0.515,0.505) * Color(0.60,0.62,0.65), "Enhanced neutral hair keeps a cool dark band after half-Lambert remapping")
 	material.shader = Materials.TOON
+	material.set_shader_parameter("world_to_head", Transform3D(Basis.IDENTITY, Vector3(0.05, 0.13, -0.065)))
+	var azimuth := deg_to_rad(20.0)
+	var elevation := deg_to_rad(48.4)
+	var crown_light := Vector3(sin(azimuth) * cos(elevation), sin(elevation), cos(azimuth) * cos(elevation))
+	light.look_at_from_position(crown_light * 8.0, Vector3.ZERO)
+	_check(await _image(), Color(0.525,0.515,0.505), "The upper rear crown stays lit under overhead key light instead of inheriting strand-normal blotches")
+	material.set_shader_parameter("world_to_head", Transform3D(Basis.IDENTITY, Vector3(0,-10,0)))
+	light.rotation = Vector3.ZERO
 	var ramp_image := Image.create(2, 2, false, Image.FORMAT_RGBA8)
 	ramp_image.fill(Color(0.6,0.8,1.0))
 	material.set_shader_parameter("warm_ramp", ImageTexture.create_from_image(ramp_image))
